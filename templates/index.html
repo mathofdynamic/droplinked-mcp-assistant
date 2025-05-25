@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Droplinked MCP Assistant</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="chat-header">
+            <h1>Droplinked MCP Assistant</h1>
+            <button id="new-chat-button">New Chat</button>
+        </div>
+        <div id="chat-window">
+            <!-- Initial welcome message -->
+            <div class="message assistant-message">Hello! How can I assist you with your Droplinked store today?</div>
+        </div>
+        <div id="input-area">
+            <input type="text" id="message-input" placeholder="Type your message..." autofocus>
+            <button id="send-button">Send</button>
+        </div>
+        <div class="session-info">
+            Current Session ID: <span id="session-id-display"></span>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
