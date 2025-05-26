@@ -92,7 +92,8 @@ body {
 }
 
 #send-button,
-#new-chat-button {
+#new-chat-button,
+#image-upload-button {
     padding: 10px 20px;
     background-color: #007bff; /* Primary blue */
     color: white;
@@ -108,9 +109,41 @@ body {
     font-size: 0.9em;
 }
 
+#image-upload-button {
+    background-color: #6c757d; /* Grey for image upload */
+    margin-left: 5px;
+    padding: 10px 15px;
+    font-size: 1.2em;
+}
+
 #send-button:hover,
-#new-chat-button:hover {
+#new-chat-button:hover,
+#image-upload-button:hover {
     opacity: 0.85;
+}
+
+.image-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.image-preview img {
+    max-width: 100px;
+    max-height: 100px;
+    border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    object-fit: cover;
+}
+
+.upload-progress {
+    background-color: #e3f2fd;
+    border: 1px solid #2196f3;
+    border-radius: 8px;
+    padding: 10px;
+    margin: 10px 0;
+    color: #1976d2;
 }
 
 .session-info {

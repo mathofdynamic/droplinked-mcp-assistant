@@ -57,13 +57,45 @@ class ChatResponse(BaseModel):
     session_id: str
     response_message: str
 
-SESSION_THREADS: Dict[str, str] = {} 
+SESSION_THREADS: Dict[str, str] = {}
+
+async def handle_image_upload_response(image_urls: List[str], current_state_data: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Handles the response when images are uploaded during product creation.
+    Updates the current state with uploaded image URLs.
+    """
+    print(f"DEBUG (chatbot_router): handle_image_upload_response called with {len(image_urls)} URLs")
+    
+    if not current_state_data:
+        current_state_data = {}
+    
+    # Add uploaded image URLs to the current state
+    existing_images = current_state_data.get('uploaded_image_urls', [])
+    if not isinstance(existing_images, list):
+        existing_images = []
+    
+    # Add new image URLs
+    for url in image_urls:
+        if isinstance(url, str) and url.strip() and url not in existing_images:
+            existing_images.append(url.strip())
+    
+    current_state_data['uploaded_image_urls'] = existing_images
+    current_state_data['product_images'] = 'uploaded'  # Mark as completed
+    
+    print(f"DEBUG (chatbot_router): Updated state with {len(existing_images)} total images")
+    
+    return {
+        "status": "images_uploaded",
+        "message": f"Successfully uploaded {len(image_urls)} image(s). Total images: {len(existing_images)}",
+        "current_data_collected": current_state_data
+    } 
 
 AVAILABLE_TOOLS = {
     "list_my_droplinked_products": droplinked_api_service.list_user_products,
     # Corrected to match the function name in droplinked_api_service.py
     "create_new_droplinked_product": droplinked_api_service.create_new_droplinked_product, 
     "get_droplinked_shop_collections": droplinked_api_service.get_collections,
+    "handle_image_upload_response": handle_image_upload_response,
 }
 
 def get_or_create_thread_for_session(session_id: str) -> str | None:
@@ -175,6 +207,11 @@ async def handle_chatbot_message(
                                      function_result = await tool_function(droplinked_jwt=droplinked_jwt) 
                                 else: # Should not be hit if logic is correct
                                     function_result = {"error": f"Tool {function_name} argument logic not fully implemented."}
+                            elif function_name == "handle_image_upload_response":
+                                # Handle image upload response tool
+                                image_urls = arguments.get("image_urls", [])
+                                current_state_data = arguments.get("current_state_data", {})
+                                function_result = await tool_function(image_urls=image_urls, current_state_data=current_state_data)
                             else: 
                                 function_result = await tool_function(**arguments)
                             

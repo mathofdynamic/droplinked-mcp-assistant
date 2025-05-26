@@ -1,11 +1,15 @@
 # app/services/droplinked_api_service.py
 import httpx
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 import json
 import traceback
 import time
 
 DROPLINKED_API_BASE_URL = "https://apiv3.droplinked.com"
+DROPLINKED_UPLOAD_URL = "https://tools.droplinked.com/upload"
+
+# Session-based state storage for product creation
+PRODUCT_CREATION_SESSIONS = {}
 
 async def list_user_products(droplinked_jwt: str, page: int = 1, limit: int = 10) -> dict:
     """
@@ -149,20 +153,43 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
         "productCollectionID_choice_index": "Please choose a collection for your product by typing its number (I will list them).",
         "price": "What is the price for the product? (e.g., 19.99)",
         "quantity": "How many units are available? (Enter -1 for unlimited)",
-        "weight": "What is the weight of the product (for shipping, e.g., 0.5 for half a pound/kg)?"
+        "weight": "What is the weight of the product (for shipping, e.g., 0.5 for half a pound/kg)?",
+        "product_images": "Would you like to upload images for this product? You can upload them now or skip this step."
     }
     
+    # Use session-based state management
+    session_key = f"product_creation_{droplinked_jwt[:20]}"  # Use part of JWT as session key
+    
+    # Get existing state from session storage
     llm_current_state = product_data.get("current_state_data")
-    current_collected_data = llm_current_state.copy() if isinstance(llm_current_state, dict) else {}
+    session_state = PRODUCT_CREATION_SESSIONS.get(session_key, {})
+    
+    # Merge LLM state with session state, prioritizing LLM state if provided
+    if isinstance(llm_current_state, dict) and llm_current_state:
+        current_collected_data = llm_current_state.copy()
+        print(f"DEBUG (api_service - create_tool): Using LLM provided state: {current_collected_data}")
+    else:
+        current_collected_data = session_state.copy()
+        print(f"DEBUG (api_service - create_tool): Using session stored state: {current_collected_data}")
+    
+    # Check if this is a new product creation (reset session if user explicitly starts over)
+    if product_data.get("reset_session") or (len(current_collected_data) == 0 and any(key in product_data for key in ["title", "description"])):
+        current_collected_data = {}
+        print(f"DEBUG (api_service - create_tool): Starting new product creation session")
     
     direct_fields_from_llm = [
         "title", "description", "productCollectionID", "selected_collection_title",
-        "price", "quantity", "weight"
+        "price", "quantity", "weight", "product_images", "uploaded_image_urls"
     ]
     for key in direct_fields_from_llm:
         if key in product_data and product_data[key] is not None:
             current_collected_data[key] = product_data[key]
             print(f"DEBUG (api_service - create_tool): Merged direct field '{key}': {str(product_data[key])[:100]}")
+    
+    # Handle "skip" for images
+    if product_data.get("skip_images") or (isinstance(product_data.get("product_images"), str) and product_data.get("product_images").lower() in ["skip", "no", "none"]):
+        current_collected_data["product_images"] = "skipped"
+        print("DEBUG (api_service - create_tool): User chose to skip image upload")
 
     if "productCollectionID_choice_index" in product_data and product_data["productCollectionID_choice_index"] is not None:
         if "productCollectionID" not in current_collected_data or current_collected_data["productCollectionID"] is None:
@@ -170,25 +197,58 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
                 choice_index_str = str(product_data["productCollectionID_choice_index"]).strip()
                 choice_index = int(choice_index_str) - 1
                 _available_collections = current_collected_data.get("_available_collections_for_choice", [])
+                
+                # If we don't have the available collections in session, fetch them again
+                if not _available_collections:
+                    print(f"DEBUG (api_service - create_tool): No available collections in session, fetching fresh list")
+                    try:
+                        _available_collections = await get_collections(droplinked_jwt)
+                        current_collected_data["_available_collections_for_choice"] = _available_collections
+                    except Exception as e:
+                        print(f"ERROR (api_service - create_tool): Failed to fetch collections: {e}")
+                        return {"status": "error", "message": f"Could not fetch collections: {e}"}
+                
+                print(f"DEBUG (api_service - create_tool): Attempting to select collection index {choice_index} from {len(_available_collections)} available collections")
                 if 0 <= choice_index < len(_available_collections):
                     selected_collection_obj = _available_collections[choice_index]
                     current_collected_data["productCollectionID"] = selected_collection_obj["id"]
                     current_collected_data["selected_collection_title"] = selected_collection_obj["title"]
                     current_collected_data.pop("_available_collections_for_choice", None)
-                    print(f"DEBUG (api_service - create_tool): Collection selected via index: {selected_collection_obj['title']}")
+                    print(f"DEBUG (api_service - create_tool): Collection selected via index: {selected_collection_obj['title']} (ID: {selected_collection_obj['id']})")
+                    collections_debug = [f"{i+1}. {col.get('title')} (ID: {col.get('id')})" for i, col in enumerate(_available_collections)]
+                    print(f"DEBUG (api_service - create_tool): Available collections were: {collections_debug}")
                 else:
-                    print(f"WARN (api_service - create_tool): Invalid collection choice index: {choice_index_str}")
-                    current_collected_data.pop("productCollectionID", None); current_collected_data.pop("selected_collection_title", None)
+                    print(f"WARN (api_service - create_tool): Invalid collection choice index: {choice_index_str} (converted to {choice_index}), available range: 0-{len(_available_collections)-1}")
+                    # Don't remove the collection data, just mark it as invalid so we ask again
+                    current_collected_data.pop("productCollectionID", None)
+                    current_collected_data.pop("selected_collection_title", None)
             except ValueError:
                 print(f"WARN (api_service - create_tool): Non-integer collection choice: {product_data['productCollectionID_choice_index']}")
-                current_collected_data.pop("productCollectionID", None); current_collected_data.pop("selected_collection_title", None)
+                current_collected_data.pop("productCollectionID", None)
+                current_collected_data.pop("selected_collection_title", None)
         current_collected_data.pop("productCollectionID_choice_index", None)
 
     print(f"DEBUG (api_service - create_tool): Current collected_data (after all merges): {current_collected_data}")
+    
+    # Save current state to session storage
+    PRODUCT_CREATION_SESSIONS[session_key] = current_collected_data.copy()
+    print(f"DEBUG (api_service - create_tool): Saved state to session {session_key}")
 
     for field_key_in_flow, question_template in required_fields_for_api_flow.items():
         actual_field_to_check = "productCollectionID" if field_key_in_flow == "productCollectionID_choice_index" else field_key_in_flow
-        if actual_field_to_check not in current_collected_data or current_collected_data[actual_field_to_check] is None:
+        
+        # Check if field is missing or None, but allow "skipped" for images
+        field_missing = (actual_field_to_check not in current_collected_data or 
+                        current_collected_data[actual_field_to_check] is None)
+        
+        # Special handling for product_images field
+        if actual_field_to_check == "product_images":
+            has_images = (current_collected_data.get("uploaded_image_urls") and 
+                         len(current_collected_data.get("uploaded_image_urls", [])) > 0)
+            is_skipped = (current_collected_data.get("product_images") == "skipped")
+            field_missing = not (has_images or is_skipped)
+        
+        if field_missing:
             if actual_field_to_check == "productCollectionID":
                 print("DEBUG (api_service - create_tool): productCollectionID still missing, fetching collections to present choices...")
                 try:
@@ -205,9 +265,25 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
                     detail_msg = e_coll.detail if isinstance(e_coll, HTTPException) else str(e_coll)
                     print(f"ERROR (api_service - create_tool): Exception fetching collections: {detail_msg}"); traceback.print_exc()
                     return {"status": "error", "message": f"Could not fetch collections: {detail_msg}"}
+            # Special handling for image upload
+            if actual_field_to_check == "product_images":
+                return {
+                    "status": "requires_image_upload", 
+                    "next_question": "Would you like to upload product images? Please use the image upload feature in the chat interface, or type 'skip' to continue without images.", 
+                    "field_to_collect": "product_images", 
+                    "current_data_collected": current_collected_data
+                }
             return {"status": "requires_more_info", "next_question": question_template, "field_to_collect": actual_field_to_check, "current_data_collected": current_collected_data}
 
     if not product_data.get("user_confirmation") == True:
+        # Include image information in summary
+        image_info = ""
+        uploaded_images = current_collected_data.get('uploaded_image_urls', [])
+        if uploaded_images:
+            image_info = f"- Images: {len(uploaded_images)} image(s) uploaded\n"
+        else:
+            image_info = "- Images: No images uploaded\n"
+            
         summary = (f"Okay, I have these details:\n"
                    f"- Title: {current_collected_data.get('title')}\n"
                    f"- Description: {str(current_collected_data.get('description', ''))[:60]}...\n"
@@ -215,23 +291,125 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
                    f"- Price: ${float(current_collected_data.get('price', 0.0)):.2f}\n"
                    f"- Quantity: {int(current_collected_data.get('quantity', 0)) if int(current_collected_data.get('quantity', 0)) != -1 else 'Unlimited'}\n"
                    f"- Weight: {float(current_collected_data.get('weight', 0.0))}\n"
+                   f"{image_info}"
                    f"Shall I create this product?")
+        print(f"DEBUG (api_service - create_tool): Awaiting user confirmation. Current data: {current_collected_data}")
         return {"status": "awaiting_confirmation", "confirmation_question": summary, "current_data_collected": current_collected_data}
 
     print(f"INFO (api_service - create_tool): User confirmation received. Preparing DTO for API.")
+    print(f"DEBUG (api_service - create_tool): Final collected data before API call: {current_collected_data}")
+    
+    # Verify we have all required fields
+    required_for_api = ["title", "description", "productCollectionID", "price", "quantity", "weight"]
+    missing_fields = [field for field in required_for_api if field not in current_collected_data or current_collected_data[field] is None]
+    if missing_fields:
+        print(f"ERROR (api_service - create_tool): Missing required fields for API call: {missing_fields}")
+        return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}
+    
     default_sku_option = {"variantID": "62a989ab1f2c2bbc5b1e7153", "variantName": "Color", "value": "Default", "caption": "Default", "isCustom": False}
+    
+    # Prepare media array from uploaded images (Droplinked expects objects, not strings)
+    media_array = []
+    uploaded_images = current_collected_data.get('uploaded_image_urls', [])
+    if uploaded_images:
+        for i, img_url in enumerate(uploaded_images):
+            if isinstance(img_url, str) and img_url.strip():
+                # Extract filename from URL or use a default
+                filename = img_url.split('/')[-1] if '/' in img_url else f"image_{i+1}.png"
+                # Create thumbnail URL (Droplinked usually provides _small version)
+                thumbnail_url = img_url.replace('.png', '_small.png').replace('.jpg', '_small.jpg').replace('.jpeg', '_small.jpeg')
+                
+                media_obj = {
+                    "thumbnail": thumbnail_url,
+                    "url": img_url.strip(),
+                    "isMain": i == 0,  # First image is main
+                    "fileName": filename,
+                    "fileSize": "1.0"  # Default file size
+                }
+                media_array.append(media_obj)
+        print(f"DEBUG (api_service - create_tool): Including {len(media_array)} images in product media")
+    
     try:
+        # Create properties array for color variant
+        properties_array = [{
+            "title": "Color",
+            "value": "62a989ab1f2c2bbc5b1e7153",
+            "items": [{
+                "caption": "Default",
+                "value": "Default"
+            }],
+            "isCustom": False
+        }]
+        
+        # Create SKU with proper structure
+        sku_quantity = int(current_collected_data.get("quantity"))
+        if sku_quantity == -1:
+            sku_quantity = 1000  # Use 1000 instead of 999999 for unlimited
+            
+        sku_array = [{
+            "externalID": f"SKU-{str(current_collected_data.get('title', 'prod')).replace(' ', '_')[:10]}-{int(time.time())}",
+            "rawPrice": float(current_collected_data.get("price")),
+            "index": 0,
+            "options": [{
+                "variantID": "62a989ab1f2c2bbc5b1e7153",
+                "variantName": "Color",
+                "value": "Default",
+                "caption": "Default",
+                "isCustom": False
+            }],
+            "price": float(current_collected_data.get("price")),
+            "quantity": sku_quantity,
+            "record": False,
+            "weight": float(current_collected_data.get("weight")),
+            "dimensions": {
+                "width": 1,
+                "height": 1,
+                "length": 1
+            },
+            "royalty": None
+        }]
+        
         final_api_dto = {
+            "prodviderID": None,
+            "custome_external_id": None,
+            "product_type": "NORMAL",
+            "productCollectionID": str(current_collected_data.get("productCollectionID")),
+            "mainCategory": None,
+            "subCategories": [],
             "title": str(current_collected_data.get("title")),
             "description": f"<p>{str(current_collected_data.get('description', ''))}</p>",
-            "productCollectionID": str(current_collected_data.get("productCollectionID")),
-            "product_type": "NORMAL", "priceUnit": "USD", "shippingType": "EASY_POST",
-            "shippingPrice": 0, "publish_product": True, "publish_status": "PUBLISHED",
-            "media": [], "tags": [],
-            "sku": [{"price": float(current_collected_data.get("price")), "rawPrice": float(current_collected_data.get("price")),
-                     "quantity": int(current_collected_data.get("quantity")), "weight": float(current_collected_data.get("weight")),
-                     "externalID": f"SKU-{str(current_collected_data.get('title', 'prod')).replace(' ', '_')[:10]}-{int(time.time())}",
-                     "options": [default_sku_option], "dimensions": {"length": 1, "width": 1, "height": 1}}]}
+            "media": media_array,
+            "tags": [],
+            "thumb": "",
+            "priceUnit": "USD",
+            "shippingType": "EASY_POST",
+            "shippingPrice": 0,
+            "commission": 0,
+            "canBeAffiliated": False,
+            "purchaseAvailable": True,
+            "isAddToCartDisabled": False,
+            "publish_product": True,
+            "publish_status": "PUBLISHED",
+            "pre_purchase_data_fetch": False,
+            "launchDate": None,
+            "properties": properties_array,
+            "sku": sku_array,
+            "pod_blank_product_id": None,
+            "printful_template_id": None,
+            "technique": None,
+            "printful_option_data": None,
+            "artwork": None,
+            "artwork2": None,
+            "artwork_position": None,
+            "artwork2_position": None,
+            "m2m_positions": [],
+            "m2m_positions_options": [],
+            "m2m_services": [],
+            "positions": None,
+            "digitalDetail": {
+                "chain": ""
+            }
+        }
     except (ValueError, TypeError) as e_type:
         print(f"ERROR (api_service - create_tool): Type error during DTO construction: {str(e_type)}")
         return {"status": "error", "message": f"Issue with data types: {str(e_type)}"}
@@ -239,6 +417,12 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
     print(f"DEBUG (api_service - create_tool): Final DTO for API call: {json.dumps(final_api_dto, indent=2)}")
     headers = {"Authorization": f"Bearer {droplinked_jwt}", "Content-Type": "application/json", "Accept": "application/json"}
     url = f"{DROPLINKED_API_BASE_URL}/product"
+    print(f"INFO (api_service - create_tool): About to make POST request to {url}")
+    
+    # Validate critical fields before API call
+    if not final_api_dto.get("productCollectionID"):
+        return {"status": "error", "message": "Product collection ID is missing or invalid"}
+    
     raw_response_text_create = ""
     async with httpx.AsyncClient() as client:
         try:
@@ -249,14 +433,43 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
             response.raise_for_status()
             api_response_data = response.json()
             created_title = api_response_data.get("data", {}).get("title", final_api_dto.get("title", "The product"))
+            
+            # Clear the session state after successful creation
+            if session_key in PRODUCT_CREATION_SESSIONS:
+                del PRODUCT_CREATION_SESSIONS[session_key]
+                print(f"DEBUG (api_service - create_tool): Cleared session state {session_key} after successful creation")
+            
             return {"status": "success", "message": f"Product '{created_title}' created successfully!", "product_details": api_response_data.get("data")}
         except httpx.HTTPStatusError as e:
-            error_message = f"Droplinked API Error (Status: {e.response.status_code})."
+            error_message = f"Failed to create product on Droplinked (Status: {e.response.status_code})."
             try:
                 error_details = e.response.json(); 
                 msg = error_details.get('message', error_details.get('data', {}).get('message', e.response.text[:100]))
                 if isinstance(msg, list): msg = ", ".join(msg)
-                error_message += f" Details: {msg}"
+                error_message += f" API Error: {msg}"
+                
+                # Add helpful context for common errors
+                if e.response.status_code == 500:
+                    error_message += " This appears to be a server-side issue with Droplinked."
+                    # Check if product was actually created despite the error
+                    try:
+                        print(f"DEBUG (api_service - create_tool): Checking if product was created despite 500 error...")
+                        recent_products = await list_user_products(droplinked_jwt, page=1, limit=5)
+                        if recent_products.get("data", {}).get("data"):
+                            recent_product_titles = [p.get("title", "") for p in recent_products["data"]["data"]]
+                            if final_api_dto.get("title") in recent_product_titles:
+                                print(f"INFO (api_service - create_tool): Product '{final_api_dto['title']}' was actually created despite 500 error!")
+                                # Clear the session state since product was created
+                                if session_key in PRODUCT_CREATION_SESSIONS:
+                                    del PRODUCT_CREATION_SESSIONS[session_key]
+                                return {"status": "success", "message": f"Product '{final_api_dto['title']}' was created successfully (despite API error response)!"}
+                    except Exception as check_error:
+                        print(f"DEBUG (api_service - create_tool): Could not verify if product was created: {check_error}")
+                    
+                    error_message += " Please check your products list to see if it was created, or try again in a few moments."
+                elif e.response.status_code == 400:
+                    error_message += " There may be an issue with the product data format."
+                    
             except json.JSONDecodeError: error_message += f" Raw Error: {e.response.text[:200]}"
             print(f"ERROR (api_service - create_tool): HTTPStatusError on final create: {error_message}")
             return {"status": "api_error", "message": error_message} 
@@ -264,3 +477,80 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
             print(f"ERROR (api_service - create_tool): Unexpected error on final create: {str(e_final)}")
             traceback.print_exc()
             return {"status": "error", "message": f"Unexpected internal error on product creation: {str(e_final)}"}
+
+async def upload_image_to_droplinked(droplinked_jwt: str, image_file: UploadFile) -> dict:
+    """
+    Uploads an image file to Droplinked's upload service.
+    Returns the response containing the uploaded image URLs.
+    """
+    if not droplinked_jwt:
+        print("ERROR (api_service - upload_image): No JWT provided.")
+        raise HTTPException(status_code=401, detail="Authentication token missing for image upload.")
+
+    if not image_file:
+        raise HTTPException(status_code=400, detail="No image file provided.")
+
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+    if image_file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid file type. Allowed types: {', '.join(allowed_types)}"
+        )
+
+    # Validate file size (max 10MB)
+    max_size = 10 * 1024 * 1024  # 10MB
+    if image_file.size and image_file.size > max_size:
+        raise HTTPException(status_code=400, detail="File size too large. Maximum size is 10MB.")
+
+    print(f"DEBUG (api_service - upload_image): Uploading image {image_file.filename}, size: {image_file.size}, type: {image_file.content_type}")
+
+    try:
+        # Read file content
+        file_content = await image_file.read()
+        
+        # Prepare multipart form data
+        files = {
+            "image": (image_file.filename, file_content, image_file.content_type)
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {droplinked_jwt}",
+            "Accept": "application/json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                DROPLINKED_UPLOAD_URL,
+                headers=headers,
+                files=files,
+                timeout=30.0
+            )
+            
+            print(f"DEBUG (api_service - upload_image): Upload response status: {response.status_code}")
+            raw_response_text = response.text
+            print(f"DEBUG (api_service - upload_image): Upload response (first 500): {raw_response_text[:500]}")
+            
+            response.raise_for_status()
+            upload_result = response.json()
+            
+            print(f"DEBUG (api_service - upload_image): Upload successful: {upload_result}")
+            return upload_result
+
+    except httpx.HTTPStatusError as e:
+        error_message = f"Failed to upload image (Status: {e.response.status_code})."
+        try:
+            error_details = e.response.json()
+            msg = error_details.get('message', error_details.get('error', e.response.text[:100]))
+            if isinstance(msg, list):
+                msg = ", ".join(msg)
+            error_message += f" Details: {msg}"
+        except json.JSONDecodeError:
+            error_message += f" Raw Error: {e.response.text[:200]}"
+        print(f"ERROR (api_service - upload_image): HTTPStatusError: {error_message}")
+        raise HTTPException(status_code=e.response.status_code, detail=error_message)
+    
+    except Exception as e:
+        print(f"ERROR (api_service - upload_image): Unexpected error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Unexpected error uploading image: {str(e)}")

@@ -3,4 +3,6 @@ uvicorn[standard]
 httpx
 pydantic
 python-dotenv
-Jinja2 
+Jinja2
+python-multipart
+openai 

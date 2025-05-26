@@ -5,9 +5,10 @@ A FastAPI-based intelligent assistant that integrates with the Droplinked e-comm
 ## 🚀 Features
 
 - **AI-Powered Product Management**: Create, list, and manage Droplinked products through natural language conversations
+- **Image Upload Integration**: Upload product images directly through the chat interface during product creation
 - **Collection Management**: Browse and organize products into collections
 - **Secure Authentication**: JWT-based authentication with Droplinked API
-- **Interactive Web Interface**: Modern chat-based UI for seamless user interaction
+- **Interactive Web Interface**: Modern chat-based UI with drag-and-drop image upload functionality
 - **OpenAI Assistant Integration**: Leverages OpenAI's Assistant API for intelligent responses
 - **Real-time Communication**: WebSocket-like experience through FastAPI endpoints
 
@@ -59,12 +60,14 @@ A FastAPI-based intelligent assistant that integrates with the Droplinked e-comm
    - Create an OpenAI Assistant in your OpenAI dashboard
    - Configure the assistant with the following tools:
      - `list_my_droplinked_products`: List user's products
-     - `create_new_droplinked_product`: Create new products
+     - `create_new_droplinked_product`: Create new products (with image support)
      - `get_droplinked_shop_collections`: Get product collections
+     - `handle_image_upload_response`: Process uploaded images
    - Copy the Assistant ID to your `.env` file
 
 3. **Droplinked API Configuration**
    - The application uses the Droplinked API base URL: `https://apiv3.droplinked.com`
+   - Image uploads use the Droplinked upload service: `https://tools.droplinked.com/upload`
    - Authentication is handled through the `/auth/login/basic` endpoint
    - A test user workaround is available for `mathofdynamic@gmail.com`
 
@@ -121,6 +124,9 @@ droplinked_mcp/
 - `GET /` - Main chat interface
 - `POST /chatbot/message` - Send message to AI assistant
 
+### Image Upload
+- `POST /upload/image` - Upload product images (requires authentication)
+
 ### Health Check
 - `GET /health` - Application health status
 
@@ -134,12 +140,17 @@ The OpenAI Assistant has access to the following tools:
 
 2. **create_new_droplinked_product**
    - Creates new products through guided conversation
-   - Collects required information: title, description, collection, price, quantity, weight
+   - Collects required information: title, description, collection, price, quantity, weight, and optional product images
+   - Supports image upload during the creation process
    - Provides confirmation before creation
 
 3. **get_droplinked_shop_collections**
    - Retrieves available product collections
    - Used for organizing products into categories
+
+4. **handle_image_upload_response**
+   - Processes uploaded product images
+   - Integrates with the conversational product creation flow
 
 ## 💬 Usage Examples
 
@@ -150,7 +161,10 @@ Assistant: "I'll help you create a new product. What is the title (name) of the 
 User: "Wireless Bluetooth Headphones"
 Assistant: "What is the description for this product?"
 User: "High-quality wireless headphones with noise cancellation"
-... (continues with guided setup)
+... (continues with guided setup including image upload option)
+Assistant: "Would you like to upload images for this product? You can upload them now or skip this step."
+User: [Uploads images using the camera button in the chat interface]
+Assistant: "Great! I've received your images. Here's a summary of your product..."
 ```
 
 ### Listing Products
@@ -166,6 +180,26 @@ Assistant: [Lists first 5 products]
 ```
 User: "What collections do I have?"
 Assistant: [Lists available collections]
+```
+
+### Uploading Product Images
+```
+User: "I want to create a new product"
+Assistant: [Guides through product creation process]
+Assistant: "Would you like to upload images for this product?"
+User: [Clicks the camera button (📷) in the chat interface]
+User: [Selects multiple image files or drags and drops them]
+Assistant: "I've received 3 images for your product. Processing..."
+Assistant: "Images uploaded successfully! Continuing with product creation..."
+```
+
+**Image Upload Features:**
+- Support for multiple image formats (JPEG, PNG, GIF, WebP)
+- Drag-and-drop interface
+- Real-time upload progress indicators
+- Image preview functionality
+- Maximum file size: 10MB per image
+- Option to skip image upload if not needed
 ```
 
 ## 🔒 Security Features
@@ -230,6 +264,13 @@ Before deploying to production, consider:
    - Verify Droplinked API permissions
    - Review console logs for detailed error messages
 
+5. **Image Upload Issues**
+   - Ensure file format is supported (JPEG, PNG, GIF, WebP)
+   - Check file size is under 10MB limit
+   - Verify authentication token is valid
+   - Check browser console for upload errors
+   - Ensure Droplinked upload service is accessible
+
 ## 📝 Dependencies
 
 - **FastAPI**: Modern web framework for building APIs
@@ -239,6 +280,7 @@ Before deploying to production, consider:
 - **python-dotenv**: Environment variable management
 - **Jinja2**: Template engine for HTML rendering
 - **OpenAI**: Official OpenAI Python client
+- **python-multipart**: Support for multipart form data (file uploads)
 
 ## 🤝 Contributing
 
@@ -261,6 +303,12 @@ For support and questions:
 - Verify OpenAI Assistant setup and tool configurations
 
 ## 🔄 Version History
+
+- **v1.1.0**: Image Upload Integration
+  - Added product image upload functionality
+  - Integrated with Droplinked's upload service
+  - Enhanced product creation flow with image support
+  - Added drag-and-drop image upload interface
 
 - **v1.0.0**: Initial release with core functionality
   - OpenAI Assistant integration

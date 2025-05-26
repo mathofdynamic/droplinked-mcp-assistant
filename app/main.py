@@ -1,9 +1,10 @@
 # app/main.py
-from fastapi import FastAPI, Request, HTTPException, status, Form # Ensure HTTPException and status are imported
+from fastapi import FastAPI, Request, HTTPException, status, Form, UploadFile, File, Header # Ensure HTTPException and status are imported
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel # For UserLoginRequest
+from typing import Annotated
 import os
 from dotenv import load_dotenv
 
@@ -30,7 +31,7 @@ else:
 
 # --- App Routers and Services ---
 from app.routers import chatbot_router 
-from app.services import auth_service 
+from app.services import auth_service, droplinked_api_service 
 
 # --- App Initialization ---
 app = FastAPI(title="Droplinked MCP Server")
@@ -97,6 +98,40 @@ async def login_for_access_token(form_data: UserLoginRequest):
 @app.get("/", response_class=HTMLResponse)
 async def serve_chat_ui(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+# --- Image Upload Endpoint ---
+@app.post("/upload/image")
+async def upload_product_image(
+    file: Annotated[UploadFile, File(description="Product image file")],
+    authorization: Annotated[str | None, Header(convert_underscores=True)] = None
+):
+    """Upload a product image to Droplinked's upload service."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication token required for image upload."
+        )
+    
+    droplinked_jwt = authorization.split(" ", 1)[1]
+    
+    try:
+        upload_result = await droplinked_api_service.upload_image_to_droplinked(
+            droplinked_jwt=droplinked_jwt,
+            image_file=file
+        )
+        return {
+            "success": True,
+            "message": "Image uploaded successfully",
+            "data": upload_result
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"ERROR: Unexpected error in image upload endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred during image upload: {str(e)}"
+        )
 
 # --- Include Chatbot Router ---
 app.include_router(chatbot_router.router, prefix="/chatbot", tags=["chatbot"])
