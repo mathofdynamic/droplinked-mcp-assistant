@@ -148,12 +148,12 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
     print(f"DEBUG (api_service - create_tool): Tool 'create_new_droplinked_product' called with product_data from LLM: {product_data}")
 
     required_fields_for_api_flow = {
-        "title": "What is the title (name) of the product?",
-        "description": "What is the description for this product?",
-        "productCollectionID_choice_index": "Please choose a collection for your product by typing its number (I will list them).",
-        "price": "What is the price for the product? (e.g., 19.99)",
-        "quantity": "How many units are available? (Enter -1 for unlimited)",
-        "weight": "What is the weight of the product (for shipping, e.g., 0.5 for half a pound/kg)?",
+        "title": "What is the title (name) of the product? (REQUIRED)",
+        "description": "What is the description for this product? (REQUIRED)",
+        "productCollectionID_choice_index": "Please choose a collection for your product by typing its number (I will list them). (REQUIRED)",
+        "price": "What is the price for the product? (e.g., 19.99) (REQUIRED)",
+        "quantity": "How many units are available? Enter a number or -1 for unlimited. (REQUIRED)",
+        "weight": "What is the weight of the product for shipping? (e.g., 0.5 for half a pound/kg) (REQUIRED)",
         "product_images": "Would you like to upload images for this product? You can upload them now or skip this step."
     }
     
@@ -171,6 +171,16 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
     else:
         current_collected_data = session_state.copy()
         print(f"DEBUG (api_service - create_tool): Using session stored state: {current_collected_data}")
+    
+    # If user wants to create but we don't have much data, try to merge with session
+    if product_data.get("user_confirmation") and len(current_collected_data) < 4:
+        print(f"DEBUG (api_service - create_tool): 🔄 User confirmation detected but limited data. Merging with session...")
+        # Merge session data first, then LLM data
+        merged_data = session_state.copy()
+        if isinstance(llm_current_state, dict):
+            merged_data.update(llm_current_state)
+        current_collected_data = merged_data
+        print(f"DEBUG (api_service - create_tool): After merge: {current_collected_data}")
     
     # Check if this is a new product creation (reset session if user explicitly starts over)
     if product_data.get("reset_session") or (len(current_collected_data) == 0 and any(key in product_data for key in ["title", "description"])):
@@ -275,36 +285,92 @@ async def create_new_droplinked_product(droplinked_jwt: str, product_data: dict)
                 }
             return {"status": "requires_more_info", "next_question": question_template, "field_to_collect": actual_field_to_check, "current_data_collected": current_collected_data}
 
-    if not product_data.get("user_confirmation") == True:
-        # Include image information in summary
+    # Check if user wants to add more images
+    if product_data.get("add_more_images") == True:
+        return {
+            "status": "requires_image_upload", 
+            "next_question": "Please upload additional images using the image upload feature in the chat interface, or type 'done' when you're finished adding images.", 
+            "field_to_collect": "product_images", 
+            "current_data_collected": current_collected_data
+        }
+
+    # Check if user explicitly confirmed creation
+    user_wants_to_create = (
+        product_data.get("user_confirmation") == True or 
+        product_data.get("confirm_creation") == True or
+        product_data.get("create_product") == True
+    )
+    
+    # Also check if we have all required fields and user_confirmation is True
+    # This means the assistant detected user wants to create the product
+    if user_wants_to_create:
+        print(f"DEBUG (api_service - create_tool): 🎯 User wants to create product! Checking if we have all required fields...")
+        required_for_api = ["title", "description", "productCollectionID", "price", "quantity", "weight"]
+        missing_fields = [field for field in required_for_api if field not in current_collected_data or current_collected_data[field] is None]
+        
+        if missing_fields:
+            print(f"DEBUG (api_service - create_tool): ⚠️ User wants to create but missing fields: {missing_fields}")
+            # Don't proceed with creation, ask for missing fields first
+            user_wants_to_create = False
+    
+    if not user_wants_to_create:
+        # Include detailed image information in summary
         image_info = ""
         uploaded_images = current_collected_data.get('uploaded_image_urls', [])
         if uploaded_images:
             image_info = f"- Images: {len(uploaded_images)} image(s) uploaded\n"
+            for i, img_url in enumerate(uploaded_images, 1):
+                filename = img_url.split('/')[-1] if '/' in img_url else f"image_{i}"
+                image_info += f"  {i}. {filename}\n"
         else:
             image_info = "- Images: No images uploaded\n"
             
-        summary = (f"Okay, I have these details:\n"
+        summary = (f"Here's a summary of your product:\n\n"
                    f"- Title: {current_collected_data.get('title')}\n"
-                   f"- Description: {str(current_collected_data.get('description', ''))[:60]}...\n"
+                   f"- Description: {str(current_collected_data.get('description', ''))[:100]}{'...' if len(str(current_collected_data.get('description', ''))) > 100 else ''}\n"
                    f"- Collection: {current_collected_data.get('selected_collection_title', current_collected_data.get('productCollectionID'))}\n"
                    f"- Price: ${float(current_collected_data.get('price', 0.0)):.2f}\n"
                    f"- Quantity: {int(current_collected_data.get('quantity', 0)) if int(current_collected_data.get('quantity', 0)) != -1 else 'Unlimited'}\n"
                    f"- Weight: {float(current_collected_data.get('weight', 0.0))}\n"
-                   f"{image_info}"
-                   f"Shall I create this product?")
+                   f"{image_info}\n"
+                   f"⚠️ IMPORTANT: To actually create this product, you must call this tool again with 'user_confirmation': true or 'create_product': true.\n\n"
+                   f"Would you like to:\n"
+                   f"1. Create the product as is\n"
+                   f"2. Add more images\n"
+                   f"3. Make changes to the details\n\n"
+                   f"Please type 'create', 'add images', or tell me what you'd like to change.")
         print(f"DEBUG (api_service - create_tool): Awaiting user confirmation. Current data: {current_collected_data}")
-        return {"status": "awaiting_confirmation", "confirmation_question": summary, "current_data_collected": current_collected_data}
+        return {"status": "awaiting_final_confirmation", "confirmation_question": summary, "current_data_collected": current_collected_data}
 
-    print(f"INFO (api_service - create_tool): User confirmation received. Preparing DTO for API.")
+    print(f"INFO (api_service - create_tool): ✅ USER CONFIRMATION RECEIVED! Preparing DTO for API.")
+    print(f"DEBUG (api_service - create_tool): Confirmation flags in product_data: user_confirmation={product_data.get('user_confirmation')}, confirm_creation={product_data.get('confirm_creation')}, create_product={product_data.get('create_product')}")
     print(f"DEBUG (api_service - create_tool): Final collected data before API call: {current_collected_data}")
     
     # Verify we have all required fields
     required_for_api = ["title", "description", "productCollectionID", "price", "quantity", "weight"]
     missing_fields = [field for field in required_for_api if field not in current_collected_data or current_collected_data[field] is None]
     if missing_fields:
-        print(f"ERROR (api_service - create_tool): Missing required fields for API call: {missing_fields}")
-        return {"status": "error", "message": f"Missing required fields: {', '.join(missing_fields)}"}
+        print(f"ERROR (api_service - create_tool): ❌ MISSING REQUIRED FIELDS: {missing_fields}")
+        print(f"ERROR (api_service - create_tool): Current data: {current_collected_data}")
+        
+        # Return to collection step to gather missing info
+        missing_info = []
+        for field in missing_fields:
+            if field == "productCollectionID":
+                missing_info.append("collection selection")
+            elif field == "quantity":
+                missing_info.append("quantity (how many units)")
+            elif field == "weight":
+                missing_info.append("weight (for shipping)")
+            else:
+                missing_info.append(field)
+        
+        return {
+            "status": "error", 
+            "message": f"Cannot create product yet. Missing required information: {', '.join(missing_info)}. Please provide all required details first.",
+            "missing_fields": missing_fields,
+            "current_data_collected": current_collected_data
+        }
     
     default_sku_option = {"variantID": "62a989ab1f2c2bbc5b1e7153", "variantName": "Color", "value": "Default", "caption": "Default", "isCustom": False}
     

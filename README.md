@@ -5,11 +5,16 @@ A FastAPI-based intelligent assistant that integrates with the Droplinked e-comm
 ## 🚀 Features
 
 - **AI-Powered Product Management**: Create, list, and manage Droplinked products through natural language conversations
-- **Image Upload Integration**: Upload product images directly through the chat interface during product creation
+- **Enhanced Image Upload Flow**: 
+  - Upload multiple product images with intuitive workflow
+  - Add images incrementally during product creation
+  - Clear options to continue or add more images
+  - No premature product creation after single image upload
 - **Collection Management**: Browse and organize products into collections
 - **Secure Authentication**: JWT-based authentication with Droplinked API
 - **Interactive Web Interface**: Modern chat-based UI with drag-and-drop image upload functionality
 - **OpenAI Assistant Integration**: Leverages OpenAI's Assistant API for intelligent responses
+- **Final Confirmation Process**: Always requires explicit user confirmation before creating products
 - **Real-time Communication**: WebSocket-like experience through FastAPI endpoints
 
 ## 📋 Prerequisites
@@ -150,11 +155,16 @@ The OpenAI Assistant has access to the following tools:
 
 4. **handle_image_upload_response**
    - Processes uploaded product images
+   - Supports multiple image uploads per product
    - Integrates with the conversational product creation flow
+
+5. **continue_product_creation_after_images**
+   - Continues product creation after image uploads are complete
+   - Allows users to proceed to final confirmation
 
 ## 💬 Usage Examples
 
-### Creating a Product
+### Creating a Product with Multiple Images
 ```
 User: "I want to create a new product"
 Assistant: "I'll help you create a new product. What is the title (name) of the product?"
@@ -163,8 +173,43 @@ Assistant: "What is the description for this product?"
 User: "High-quality wireless headphones with noise cancellation"
 ... (continues with guided setup including image upload option)
 Assistant: "Would you like to upload images for this product? You can upload them now or skip this step."
-User: [Uploads images using the camera button in the chat interface]
-Assistant: "Great! I've received your images. Here's a summary of your product..."
+User: [Uploads first image using the camera button]
+Assistant: "Great! I've uploaded your first image. You now have 1 image for your product.
+
+Would you like to:
+1. Upload more images
+2. Continue with product creation
+
+You can upload more images or type 'continue' to proceed."
+User: [Uploads second image]
+Assistant: "Perfect! I've uploaded 1 more image. You now have 2 images total for your product.
+
+Would you like to:
+1. Upload more images
+2. Continue with product creation
+
+You can upload more images or type 'continue' to proceed."
+User: "continue"
+Assistant: "Here's a summary of your product:
+
+- Title: Wireless Bluetooth Headphones
+- Description: High-quality wireless headphones with noise cancellation
+- Collection: Electronics
+- Price: $99.99
+- Quantity: 50
+- Weight: 0.5
+- Images: 2 image(s) uploaded
+  1. headphones_main.jpg
+  2. headphones_side.jpg
+
+Would you like to:
+1. Create the product as is
+2. Add more images
+3. Make changes to the details
+
+Please type 'create', 'add images', or tell me what you'd like to change."
+User: "create"
+Assistant: "Product 'Wireless Bluetooth Headphones' created successfully!"
 ```
 
 ### Listing Products

@@ -32,7 +32,7 @@ if ASSISTANT_ID is None:
     if ASSISTANT_ID: print(f"INFO (chatbot_router): ASSISTANT_ID loaded from env: {ASSISTANT_ID}")
     else: print("CRITICAL (chatbot_router): ASSISTANT_ID not found.")
 
-from app.services import droplinked_api_service
+from app.services import droplinked_api_service, ai_mockup_service
 
 # --- Debugging Imports Block (from previous step, can be kept or removed once stable) ---
 print("-" * 50)
@@ -62,7 +62,7 @@ SESSION_THREADS: Dict[str, str] = {}
 async def handle_image_upload_response(image_urls: List[str], current_state_data: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Handles the response when images are uploaded during product creation.
-    Updates the current state with uploaded image URLs.
+    Updates the current state with uploaded image URLs and offers AI mockup generation.
     """
     print(f"DEBUG (chatbot_router): handle_image_upload_response called with {len(image_urls)} URLs")
     
@@ -75,20 +75,204 @@ async def handle_image_upload_response(image_urls: List[str], current_state_data
         existing_images = []
     
     # Add new image URLs
+    new_images_added = 0
     for url in image_urls:
         if isinstance(url, str) and url.strip() and url not in existing_images:
             existing_images.append(url.strip())
+            new_images_added += 1
     
     current_state_data['uploaded_image_urls'] = existing_images
-    current_state_data['product_images'] = 'uploaded'  # Mark as completed
+    current_state_data['product_images'] = 'uploaded'  # Mark as having images
     
     print(f"DEBUG (chatbot_router): Updated state with {len(existing_images)} total images")
     
+    # Provide options including AI mockup generation
+    if len(existing_images) == 1:
+        estimated_cost = ai_mockup_service.estimate_mockup_cost()
+        message = f"Great! I've uploaded your first image. You now have {len(existing_images)} image for your product.\n\n🎨 **AI Mockup Option**: I can generate 3 professional AI-enhanced mockups from your image (cost: ~${estimated_cost:.3f}). For clothing items, I'll show them on models in different settings!\n\nWould you like to:\n1. **Generate AI mockups** (recommended for better sales)\n2. Upload more images manually\n3. Continue with just your original image\n\nType 'generate mockups', 'upload more', or 'continue' to proceed."
+    else:
+        message = f"Perfect! I've uploaded {new_images_added} more image(s). You now have {len(existing_images)} images total for your product.\n\nWould you like to:\n1. Upload more images\n2. Continue with product creation\n\nYou can upload more images or type 'continue' to proceed."
+    
     return {
-        "status": "images_uploaded",
-        "message": f"Successfully uploaded {len(image_urls)} image(s). Total images: {len(existing_images)}",
+        "status": "images_uploaded_awaiting_next_step",
+        "message": message,
         "current_data_collected": current_state_data
     } 
+
+async def continue_product_creation_after_images(current_state_data: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Continues the product creation process after images have been uploaded.
+    This allows the user to proceed to the final confirmation step.
+    """
+    print(f"DEBUG (chatbot_router): continue_product_creation_after_images called")
+    
+    if not current_state_data:
+        current_state_data = {}
+    
+    # Mark that the user wants to continue with the current images
+    current_state_data['ready_for_final_confirmation'] = True
+    
+    uploaded_images = current_state_data.get('uploaded_image_urls', [])
+    image_count = len(uploaded_images)
+    
+    message = f"Excellent! I'll proceed with your product creation using the {image_count} image(s) you've uploaded. Let me gather any remaining details and show you a final summary for confirmation."
+    
+    return {
+        "status": "ready_for_final_confirmation",
+        "message": message,
+        "current_data_collected": current_state_data
+    }
+
+async def confirm_product_creation(current_state_data: Dict[str, Any] = None) -> Dict[str, Any]:
+    """
+    Helper tool to trigger the confirmation flow for product creation.
+    This should be called when user says 'continue' or 'create' to show them the final summary.
+    This will NOT immediately create the product - it will show a summary first.
+    """
+    print(f"DEBUG (chatbot_router): confirm_product_creation called with state: {current_state_data}")
+    
+    if not current_state_data:
+        current_state_data = {}
+    
+    # Return a message that tells the assistant to call create_new_droplinked_product without user_confirmation
+    # This will trigger the summary display
+    return {
+        "status": "trigger_confirmation_flow",
+        "message": "User wants to see the product summary. Call create_new_droplinked_product WITHOUT user_confirmation to show the summary and ask for final confirmation.",
+        "current_data_collected": current_state_data,
+        "next_action": "show_summary"
+    }
+
+async def manage_droplinked_product(
+    action: str,
+    title: str = None,
+    description: str = None, 
+    collection_choice: str = None,
+    price: float = None,
+    quantity: int = None,
+    weight: float = None,
+    image_urls: list = None,
+    skip_images: bool = None,
+    use_ai_mockups: bool = None,
+    user_message: str = None,
+    droplinked_jwt: str = None
+) -> Dict[str, Any]:
+    """
+    Single function to handle all product creation workflow.
+    Uses action parameter to determine what step to perform.
+    """
+    print(f"DEBUG: manage_droplinked_product called with action='{action}'")
+    
+    # Generate session key from JWT
+    session_key = f"product_creation_{droplinked_jwt[:20] if droplinked_jwt else 'no_jwt'}"
+    
+    if action == "create_product":
+        # Data collection phase
+        product_data = {
+            "title": title,
+            "description": description, 
+            "productCollectionID_choice_index": collection_choice,
+            "price": price,
+            "quantity": quantity,
+            "weight": weight,
+            "skip_images": skip_images
+        }
+        
+        # Remove None values
+        product_data = {k: v for k, v in product_data.items() if v is not None}
+        
+        # Call existing function without user_confirmation
+        return await droplinked_api_service.create_new_droplinked_product(droplinked_jwt, product_data)
+        
+    elif action == "upload_images":
+        # Image upload phase
+        if image_urls:
+            return await handle_image_upload_response(image_urls)
+        else:
+            return {"status": "error", "message": "No image URLs provided for upload action"}
+    
+    elif action == "generate_ai_mockups":
+        # AI mockup generation phase
+        if not image_urls or len(image_urls) == 0:
+            return {"status": "error", "message": "No image URLs provided for AI mockup generation"}
+        
+        try:
+            # Use the first uploaded image to generate mockups
+            original_image_url = image_urls[0]
+            print(f"DEBUG (chatbot_router): Generating AI mockups from {original_image_url}")
+            
+            # Generate 3 AI mockups
+            generated_mockup_urls = await ai_mockup_service.generate_ai_mockups(
+                original_image_url, 
+                droplinked_jwt
+            )
+            
+            if generated_mockup_urls:
+                # Combine original image with generated mockups
+                all_image_urls = [original_image_url] + generated_mockup_urls
+                
+                return {
+                    "status": "ai_mockups_generated",
+                    "message": f"🎉 Successfully generated {len(generated_mockup_urls)} AI mockups! You now have {len(all_image_urls)} images total (1 original + {len(generated_mockup_urls)} AI-enhanced). The AI has created professional versions showing your product in different styles and settings.",
+                    "generated_urls": generated_mockup_urls,
+                    "all_image_urls": all_image_urls,
+                    "cost": ai_mockup_service.estimate_mockup_cost(len(generated_mockup_urls))
+                }
+            else:
+                return {
+                    "status": "error", 
+                    "message": "Failed to generate AI mockups. You can continue with your original image or try uploading a different image."
+                }
+                
+        except Exception as e:
+            print(f"ERROR (chatbot_router): AI mockup generation failed: {e}")
+            return {
+                "status": "error",
+                "message": f"AI mockup generation failed: {str(e)}. You can continue with your original image or try again."
+            }
+        
+    elif action == "show_summary":
+        # Summary phase - show summary and ask for confirmation
+        product_data = {
+            "title": title,
+            "description": description, 
+            "productCollectionID_choice_index": collection_choice,
+            "price": price,
+            "quantity": quantity,
+            "weight": weight,
+            "uploaded_image_urls": image_urls,
+            "skip_images": skip_images
+        }
+        
+        # Remove None values
+        product_data = {k: v for k, v in product_data.items() if v is not None}
+        
+        return await droplinked_api_service.create_new_droplinked_product(droplinked_jwt, product_data)
+        
+    elif action == "confirm_creation":
+        # Creation phase - actually create the product
+        product_data = {
+            "title": title,
+            "description": description, 
+            "productCollectionID_choice_index": collection_choice,
+            "price": price,
+            "quantity": quantity,
+            "weight": weight,
+            "uploaded_image_urls": image_urls,
+            "skip_images": skip_images,
+            "user_confirmation": True  # This triggers actual creation
+        }
+        
+        # Remove None values
+        product_data = {k: v for k, v in product_data.items() if v is not None}
+        
+        return await droplinked_api_service.create_new_droplinked_product(droplinked_jwt, product_data)
+        
+    else:
+        return {
+            "status": "error",
+            "message": f"Invalid action: {action}. Use: create_product, upload_images, show_summary, or confirm_creation"
+        }
 
 AVAILABLE_TOOLS = {
     "list_my_droplinked_products": droplinked_api_service.list_user_products,
@@ -96,6 +280,10 @@ AVAILABLE_TOOLS = {
     "create_new_droplinked_product": droplinked_api_service.create_new_droplinked_product, 
     "get_droplinked_shop_collections": droplinked_api_service.get_collections,
     "handle_image_upload_response": handle_image_upload_response,
+    "continue_product_creation_after_images": continue_product_creation_after_images,
+    "confirm_product_creation": confirm_product_creation,
+    # New single function approach
+    "manage_droplinked_product": manage_droplinked_product,
 }
 
 def get_or_create_thread_for_session(session_id: str) -> str | None:
@@ -212,6 +400,20 @@ async def handle_chatbot_message(
                                 image_urls = arguments.get("image_urls", [])
                                 current_state_data = arguments.get("current_state_data", {})
                                 function_result = await tool_function(image_urls=image_urls, current_state_data=current_state_data)
+                            elif function_name == "continue_product_creation_after_images":
+                                # Handle continuing product creation after images
+                                current_state_data = arguments.get("current_state_data", {})
+                                function_result = await tool_function(current_state_data=current_state_data)
+                            elif function_name == "confirm_product_creation":
+                                # Handle user confirmation for product creation
+                                current_state_data = arguments.get("current_state_data", {})
+                                function_result = await tool_function(current_state_data=current_state_data)
+                            elif function_name == "manage_droplinked_product":
+                                # Handle the new single function approach
+                                if not droplinked_jwt:
+                                    print(f"WARN (chatbot_router): Tool {function_name} requires auth, but no JWT.")
+                                    raise ValueError("Authentication token required for this action.")
+                                function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
                             else: 
                                 function_result = await tool_function(**arguments)
                             
