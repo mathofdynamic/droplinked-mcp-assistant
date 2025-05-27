@@ -1,15 +1,22 @@
 # Droplinked MCP (Model Context Protocol) Server
 
-A FastAPI-based intelligent assistant that integrates with the Droplinked e-commerce platform, providing AI-powered product management capabilities through OpenAI's Assistant API.
+A FastAPI-based intelligent assistant that integrates with the Droplinked e-commerce platform, providing AI-powered product management capabilities through OpenAI's Assistant API with advanced AI image generation.
 
 ## 🚀 Features
 
 - **AI-Powered Product Management**: Create, list, and manage Droplinked products through natural language conversations
+- **🎨 AI Mockup Generation**: 
+  - Generate professional AI-enhanced product mockups using OpenAI's GPT-Image-1 model
+  - Automatic clothing detection - garments shown on models in different poses/settings
+  - Cost-effective generation (~$0.033 for 3 professional mockups)
+  - Smart prompts for fashion vs. general products
 - **Enhanced Image Upload Flow**: 
   - Upload multiple product images with intuitive workflow
   - Add images incrementally during product creation
+  - AI mockup option offered after first image upload
   - Clear options to continue or add more images
   - No premature product creation after single image upload
+- **Streamlined Workflow**: Single function approach with clear action-based steps
 - **Collection Management**: Browse and organize products into collections
 - **Secure Authentication**: JWT-based authentication with Droplinked API
 - **Interactive Web Interface**: Modern chat-based UI with drag-and-drop image upload functionality
@@ -76,6 +83,16 @@ A FastAPI-based intelligent assistant that integrates with the Droplinked e-comm
    - Authentication is handled through the `/auth/login/basic` endpoint
    - A test user workaround is available for `mathofdynamic@gmail.com`
 
+4. **AI Mockup Configuration**
+   - Uses OpenAI's GPT-Image-1 model for professional mockup generation
+   - Automatic clothing detection with GPT-4V
+   - Cost structure:
+     - Low quality: $0.011 per image
+     - Medium quality: $0.042 per image  
+     - High quality: $0.167 per image
+   - Default setting: Low quality for cost efficiency (~$0.033 for 3 mockups)
+   - Smart prompts differentiate between clothing and general products
+
 ## 🚀 Running the Application
 
 1. **Start the server**
@@ -106,7 +123,12 @@ droplinked_mcp/
 │   └── services/
 │       ├── auth_service.py    # Authentication logic
 │       ├── droplinked_api_service.py  # Droplinked API integration
+│       ├── ai_mockup_service.py       # AI image generation service
 │       └── nlu_service.py     # Natural language understanding
+├── openai_config/             # OpenAI Assistant configuration
+│   ├── assistant_system_instructions.md
+│   ├── updated_function_definition.json
+│   └── simplified_instructions.md
 ├── static/
 │   ├── script.js             # Frontend JavaScript
 │   └── style.css             # Frontend styling
@@ -137,70 +159,77 @@ droplinked_mcp/
 
 ## 🤖 Available AI Tools
 
-The OpenAI Assistant has access to the following tools:
+The OpenAI Assistant uses a streamlined single-function approach:
 
-1. **list_my_droplinked_products**
-   - Lists products for the authenticated user
-   - Supports pagination with `page` and `limit` parameters
+### **manage_droplinked_product** (Primary Function)
+A comprehensive function that handles all product creation steps through action parameters:
 
-2. **create_new_droplinked_product**
-   - Creates new products through guided conversation
-   - Collects required information: title, description, collection, price, quantity, weight, and optional product images
-   - Supports image upload during the creation process
-   - Provides confirmation before creation
+- **Action: `create_product`** - Data collection phase
+  - Collects required information: title, description, collection, price, quantity, weight
+  - Guides users through step-by-step data gathering
 
-3. **get_droplinked_shop_collections**
-   - Retrieves available product collections
-   - Used for organizing products into categories
+- **Action: `upload_images`** - Image processing phase
+  - Processes uploaded product images
+  - Supports multiple image uploads per product
+  - Offers AI mockup generation option
 
-4. **handle_image_upload_response**
-   - Processes uploaded product images
-   - Supports multiple image uploads per product
-   - Integrates with the conversational product creation flow
+- **Action: `generate_ai_mockups`** - AI enhancement phase
+  - Generates 3 professional AI-enhanced mockups using GPT-Image-1
+  - Automatically detects clothing items and shows them on models
+  - Creates studio, lifestyle, and premium fashion photos
+  - Cost: ~$0.033 for 3 high-quality mockups
 
-5. **continue_product_creation_after_images**
-   - Continues product creation after image uploads are complete
-   - Allows users to proceed to final confirmation
+- **Action: `show_summary`** - Confirmation phase
+  - Displays complete product summary before creation
+  - Shows all collected data including images
+  - Requires explicit user confirmation
+
+- **Action: `confirm_creation`** - Final creation phase
+  - Actually creates the product on Droplinked
+  - Only executes after user sees and confirms summary
+
+### **Supporting Functions**
+- **list_my_droplinked_products** - Lists user's existing products with pagination
+- **get_droplinked_shop_collections** - Retrieves available product collections
 
 ## 💬 Usage Examples
 
-### Creating a Product with Multiple Images
+### Creating a Product with AI Mockup Generation
 ```
 User: "I want to create a new product"
 Assistant: "I'll help you create a new product. What is the title (name) of the product?"
-User: "Wireless Bluetooth Headphones"
+User: "Vintage Denim Jacket"
 Assistant: "What is the description for this product?"
-User: "High-quality wireless headphones with noise cancellation"
-... (continues with guided setup including image upload option)
-Assistant: "Would you like to upload images for this product? You can upload them now or skip this step."
+User: "Classic vintage-style denim jacket with distressed details"
+... (continues with guided setup including collection selection)
+Assistant: "Would you like to upload product images? Please use the image upload feature in the chat interface, or type 'skip' to continue without images."
 User: [Uploads first image using the camera button]
 Assistant: "Great! I've uploaded your first image. You now have 1 image for your product.
 
-Would you like to:
-1. Upload more images
-2. Continue with product creation
-
-You can upload more images or type 'continue' to proceed."
-User: [Uploads second image]
-Assistant: "Perfect! I've uploaded 1 more image. You now have 2 images total for your product.
+🎨 **AI Mockup Option**: I can generate 3 professional AI-enhanced mockups from your image (cost: ~$0.033). For clothing items, I'll show them on models in different settings!
 
 Would you like to:
-1. Upload more images
-2. Continue with product creation
+1. **Generate AI mockups** (recommended for better sales)
+2. Upload more images manually
+3. Continue with just your original image
 
-You can upload more images or type 'continue' to proceed."
-User: "continue"
+Type 'generate mockups', 'upload more', or 'continue' to proceed."
+User: "generate mockups"
+Assistant: "🎉 Successfully generated 3 AI mockups! You now have 4 images total (1 original + 3 AI-enhanced). The AI has created professional versions showing your product in different styles and settings."
+User: "create it"
 Assistant: "Here's a summary of your product:
 
-- Title: Wireless Bluetooth Headphones
-- Description: High-quality wireless headphones with noise cancellation
-- Collection: Electronics
-- Price: $99.99
-- Quantity: 50
-- Weight: 0.5
-- Images: 2 image(s) uploaded
-  1. headphones_main.jpg
-  2. headphones_side.jpg
+- Title: Vintage Denim Jacket
+- Description: Classic vintage-style denim jacket with distressed details
+- Collection: Fashion
+- Price: $89.99
+- Quantity: 25
+- Weight: 1.2
+- Images: 4 image(s) uploaded
+  1. original_jacket.jpg
+  2. ai_studio_model.png (AI-generated)
+  3. ai_lifestyle_photo.png (AI-generated)
+  4. ai_premium_fashion.png (AI-generated)
 
 Would you like to:
 1. Create the product as is
@@ -209,7 +238,7 @@ Would you like to:
 
 Please type 'create', 'add images', or tell me what you'd like to change."
 User: "create"
-Assistant: "Product 'Wireless Bluetooth Headphones' created successfully!"
+Assistant: "Product 'Vintage Denim Jacket' created successfully with 4 professional images!"
 ```
 
 ### Listing Products
@@ -238,6 +267,16 @@ Assistant: "I've received 3 images for your product. Processing..."
 Assistant: "Images uploaded successfully! Continuing with product creation..."
 ```
 
+### AI Mockup Generation
+```
+User: "I want to create a product called 'Summer Dress'"
+Assistant: [Guides through product creation]
+User: [Uploads dress image]
+Assistant: "🎨 AI Mockup Option available! Generate 3 professional mockups?"
+User: "yes"
+Assistant: "✅ Generated 3 AI mockups showing the dress on models in studio, lifestyle, and premium settings!"
+```
+
 **Image Upload Features:**
 - Support for multiple image formats (JPEG, PNG, GIF, WebP)
 - Drag-and-drop interface
@@ -245,6 +284,14 @@ Assistant: "Images uploaded successfully! Continuing with product creation..."
 - Image preview functionality
 - Maximum file size: 10MB per image
 - Option to skip image upload if not needed
+
+**AI Mockup Features:**
+- Automatic clothing detection using GPT-4V
+- Professional mockup generation with GPT-Image-1
+- Fashion items shown on models in different poses/settings
+- Cost-effective: ~$0.033 for 3 professional images
+- Smart prompts for different product types
+- Seamless integration with product creation workflow
 ```
 
 ## 🔒 Security Features
@@ -316,6 +363,13 @@ Before deploying to production, consider:
    - Check browser console for upload errors
    - Ensure Droplinked upload service is accessible
 
+6. **AI Mockup Generation Issues**
+   - Verify OpenAI API key has access to GPT-Image-1 model
+   - Check that image format is supported (automatically converts to JPEG if needed)
+   - Ensure sufficient OpenAI API credits for image generation
+   - Review console logs for detailed error messages from OpenAI API
+   - Verify image download from URL is successful before AI processing
+
 ## 📝 Dependencies
 
 - **FastAPI**: Modern web framework for building APIs
@@ -324,8 +378,9 @@ Before deploying to production, consider:
 - **Pydantic**: Data validation using Python type annotations
 - **python-dotenv**: Environment variable management
 - **Jinja2**: Template engine for HTML rendering
-- **OpenAI**: Official OpenAI Python client
+- **OpenAI**: Official OpenAI Python client (includes GPT-Image-1 support)
 - **python-multipart**: Support for multipart form data (file uploads)
+- **Pillow**: Image processing for format conversion and optimization
 
 ## 🤝 Contributing
 
@@ -348,6 +403,15 @@ For support and questions:
 - Verify OpenAI Assistant setup and tool configurations
 
 ## 🔄 Version History
+
+- **v2.0.0**: AI Mockup Generation & Streamlined Workflow
+  - 🎨 **AI Mockup Generation**: Professional product mockups using OpenAI's GPT-Image-1
+  - **Smart Clothing Detection**: Automatic detection of garments for model-based mockups
+  - **Single Function Architecture**: Streamlined `manage_droplinked_product` with action-based workflow
+  - **Enhanced User Experience**: Clear step-by-step guidance with proper confirmation flow
+  - **Cost-Effective AI**: Generate 3 professional mockups for ~$0.033
+  - **Improved Error Handling**: Better image format support and conversion
+  - **Updated OpenAI Integration**: Latest Assistant API with comprehensive function definitions
 
 - **v1.1.0**: Image Upload Integration
   - Added product image upload functionality
