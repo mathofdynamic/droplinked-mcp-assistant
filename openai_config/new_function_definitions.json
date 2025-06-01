@@ -1,0 +1,144 @@
+{
+  "functions": [
+    {
+      "name": "manage_product_operations",
+      "description": "Unified function for managing product operations: get product details, update products, or delete products. This is the recommended function to use for all product management tasks.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["get_product", "update_product", "delete_product"],
+            "description": "The operation to perform: 'get_product' to view details, 'update_product' to modify fields, 'delete_product' to remove the product"
+          },
+          "product_id": {
+            "type": "string",
+            "description": "The ID of the product to operate on (required for all actions)"
+          },
+          "title": {
+            "type": "string",
+            "description": "New product title (for update_product action only)"
+          },
+          "description": {
+            "type": "string", 
+            "description": "New product description (for update_product action only)"
+          },
+          "price": {
+            "type": "number",
+            "description": "New product price (for update_product action only)"
+          },
+          "productCollectionID": {
+            "type": "string",
+            "description": "New collection ID for the product (for update_product action only)"
+          },
+          "media": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "New media array for the product (for update_product action only)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "New tags array for the product (for update_product action only)"
+          },
+          "canBeAffiliated": {
+            "type": "boolean",
+            "description": "Whether the product can be affiliated (for update_product action only)"
+          },
+          "commission": {
+            "type": "number",
+            "description": "Affiliate commission percentage (for update_product action only)"
+          }
+        },
+        "required": ["action", "product_id"]
+      }
+    },
+    {
+      "name": "get_product_by_id",
+      "description": "Get detailed information about a specific product by its ID. Returns complete product data including title, description, pricing, media, and all other product details.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "The ID of the product to retrieve"
+          }
+        },
+        "required": ["product_id"]
+      }
+    },
+    {
+      "name": "update_product",
+      "description": "Update specific fields of an existing product. Only the fields provided in update_data will be modified.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "The ID of the product to update"
+          },
+          "update_data": {
+            "type": "object",
+            "description": "Object containing the fields to update. Can include: title, description, price, productCollectionID, media, tags, canBeAffiliated, commission",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "New product title"
+              },
+              "description": {
+                "type": "string",
+                "description": "New product description"
+              },
+              "price": {
+                "type": "number",
+                "description": "New product price"
+              },
+              "productCollectionID": {
+                "type": "string",
+                "description": "New collection ID"
+              },
+              "media": {
+                "type": "array",
+                "description": "New media array"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "New tags array"
+              },
+              "canBeAffiliated": {
+                "type": "boolean",
+                "description": "Whether product can be affiliated"
+              },
+              "commission": {
+                "type": "number",
+                "description": "Affiliate commission percentage"
+              }
+            }
+          }
+        },
+        "required": ["product_id", "update_data"]
+      }
+    },
+    {
+      "name": "delete_product",
+      "description": "Delete a product from the store. This action is irreversible - always confirm with the user before executing.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "description": "The ID of the product to delete"
+          }
+        },
+        "required": ["product_id"]
+      }
+    }
+  ]
+} 

@@ -274,6 +274,150 @@ async def manage_droplinked_product(
             "message": f"Invalid action: {action}. Use: create_product, upload_images, show_summary, or confirm_creation"
         }
 
+async def manage_product_operations(
+    action: str,
+    product_id: str = None,
+    # Fields for updating (direct format)
+    title: str = None,
+    description: str = None,
+    price: float = None,
+    # Additional update fields based on the API schema
+    productCollectionID: str = None,
+    media: list = None,
+    tags: list = None,
+    canBeAffiliated: bool = None,
+    commission: float = None,
+    # Support for nested update_data format (for OpenAI compatibility)
+    update_data: dict = None,
+    # Other parameters
+    droplinked_jwt: str = None
+) -> Dict[str, Any]:
+    """
+    Unified function for managing product operations: get, update, delete
+    
+    Actions:
+    - get_product: Get product details by ID
+    - update_product: Update product fields
+    - delete_product: Delete a product
+    """
+    
+    if not droplinked_jwt:
+        return {"status": "error", "message": "Authentication token required for product operations."}
+    
+    if not action:
+        return {"status": "error", "message": "Action is required. Use: get_product, update_product, or delete_product"}
+    
+    if not product_id:
+        return {"status": "error", "message": "Product ID is required for all product operations."}
+    
+    try:
+        if action == "get_product":
+            # Get product details
+            result = await droplinked_api_service.get_product_by_id(droplinked_jwt, product_id)
+            
+            # Extract key information for easier reading
+            if isinstance(result, dict) and "data" in result:
+                product_data = result["data"]
+            else:
+                product_data = result
+            
+            # Format the response for better readability
+            if isinstance(product_data, dict):
+                formatted_response = {
+                    "status": "success",
+                    "action": "get_product",
+                    "product_id": product_id,
+                    "product_details": {
+                        "title": product_data.get("title", "N/A"),
+                        "description": product_data.get("description", "N/A"),
+                        "price_range": f"${product_data.get('lowestPrice', 'N/A')} - ${product_data.get('highestPrice', 'N/A')}",
+                        "product_type": product_data.get("product_type", "N/A"),
+                        "collection": product_data.get("productCollectionID", {}).get("title", "N/A") if isinstance(product_data.get("productCollectionID"), dict) else "N/A",
+                        "media_count": len(product_data.get("media", [])),
+                        "sku_count": len(product_data.get("skuIDs", [])),
+                        "can_be_affiliated": product_data.get("canBeAffiliated", False),
+                        "commission": product_data.get("commission", 0),
+                        "shipping_type": product_data.get("shippingType", "N/A"),
+                        "publish_status": product_data.get("publish_status", "N/A")
+                    },
+                    "full_data": product_data  # Include full data for reference
+                }
+            else:
+                formatted_response = {"status": "success", "action": "get_product", "raw_data": result}
+            
+            return formatted_response
+            
+        elif action == "update_product":
+            # Build update data from provided parameters
+            # Support both direct parameters and nested update_data format
+            final_update_data = {}
+            
+            # Handle nested update_data format (OpenAI sends this)
+            if update_data and isinstance(update_data, dict):
+                final_update_data.update(update_data)
+                
+            # Handle direct parameters (our original format)
+            if title is not None:
+                final_update_data["title"] = title
+            if description is not None:
+                final_update_data["description"] = description
+            if price is not None:
+                # Note: The API might expect price in SKU format, but we'll try direct update first
+                final_update_data["price"] = price
+            if productCollectionID is not None:
+                final_update_data["productCollectionID"] = productCollectionID
+            if media is not None:
+                final_update_data["media"] = media
+            if tags is not None:
+                final_update_data["tags"] = tags
+            if canBeAffiliated is not None:
+                final_update_data["canBeAffiliated"] = canBeAffiliated
+            if commission is not None:
+                final_update_data["commission"] = commission
+            
+            if not final_update_data:
+                return {
+                    "status": "error", 
+                    "message": "No update data provided. Specify fields to update: title, description, price, productCollectionID, media, tags, canBeAffiliated, commission"
+                }
+            
+            result = await droplinked_api_service.update_product(droplinked_jwt, product_id, final_update_data)
+            
+            return {
+                "status": "success",
+                "action": "update_product", 
+                "product_id": product_id,
+                "updated_fields": list(final_update_data.keys()),
+                "message": f"Product {product_id} updated successfully",
+                "result": result
+            }
+            
+        elif action == "delete_product":
+            result = await droplinked_api_service.delete_product(droplinked_jwt, product_id)
+            
+            return {
+                "status": "success",
+                "action": "delete_product",
+                "product_id": product_id, 
+                "message": f"Product {product_id} deleted successfully",
+                "result": result
+            }
+            
+        else:
+            return {
+                "status": "error",
+                "message": f"Invalid action: {action}. Use: get_product, update_product, or delete_product"
+            }
+            
+    except Exception as e:
+        print(f"ERROR (manage_product_operations): {str(e)}")
+        return {
+            "status": "error",
+            "action": action,
+            "product_id": product_id,
+            "message": f"Error during {action}: {str(e)}"
+        }
+
 AVAILABLE_TOOLS = {
     "list_my_droplinked_products": droplinked_api_service.list_user_products,
     # Corrected to match the function name in droplinked_api_service.py
@@ -284,6 +428,11 @@ AVAILABLE_TOOLS = {
     "confirm_product_creation": confirm_product_creation,
     # New single function approach
     "manage_droplinked_product": manage_droplinked_product,
+    # New product management functions
+    "get_product_by_id": droplinked_api_service.get_product_by_id,
+    "update_product": droplinked_api_service.update_product,
+    "delete_product": droplinked_api_service.delete_product,
+    "manage_product_operations": manage_product_operations,
 }
 
 def get_or_create_thread_for_session(session_id: str) -> str | None:
@@ -366,11 +515,29 @@ async def handle_chatbot_message(
                     tool_call_id = tool_call.id
                     try:
                         arguments_str = tool_call.function.arguments
+                        print(f"DEBUG (chatbot_router): Raw arguments for {function_name}: {arguments_str}")
                         arguments = json.loads(arguments_str if arguments_str else "{}") 
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as json_err:
                         print(f"ERROR (chatbot_router): Invalid JSON args for {function_name}: {arguments_str}")
-                        tool_outputs.append({"tool_call_id": tool_call_id, "output": json.dumps({"error": f"Invalid arguments format: {arguments_str}"})})
-                        continue
+                        print(f"ERROR (chatbot_router): JSON decode error: {json_err}")
+                        # Try to extract useful information even from malformed JSON
+                        try:
+                            # Attempt to fix common JSON issues
+                            fixed_str = arguments_str.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+                            
+                            # Handle extra closing braces (common OpenAI issue)
+                            if fixed_str.count('}') > fixed_str.count('{'):
+                                # Remove extra closing braces from the end
+                                while fixed_str.endswith('}}') and fixed_str.count('}') > fixed_str.count('{'):
+                                    fixed_str = fixed_str[:-1]
+                                print(f"DEBUG (chatbot_router): Removed extra closing braces: {fixed_str}")
+                            
+                            arguments = json.loads(fixed_str)
+                            print(f"DEBUG (chatbot_router): Successfully parsed after fixing: {arguments}")
+                        except Exception as fix_err:
+                            print(f"ERROR (chatbot_router): Failed to fix JSON even after attempts: {fix_err}")
+                            tool_outputs.append({"tool_call_id": tool_call_id, "output": json.dumps({"error": f"Invalid arguments format - JSON parse error: {str(json_err)}"})})
+                            continue
 
                     print(f"INFO (chatbot_router): Assistant tool call: {function_name}, Args: {arguments}")
 
@@ -380,7 +547,10 @@ async def handle_chatbot_message(
                         try:
                             if function_name in ["list_my_droplinked_products", 
                                                  "create_new_droplinked_product", # Name matches AVAILABLE_TOOLS key
-                                                 "get_droplinked_shop_collections"]:
+                                                 "get_droplinked_shop_collections",
+                                                 "get_product_by_id",
+                                                 "update_product", 
+                                                 "delete_product"]:
                                 if not droplinked_jwt:
                                     print(f"WARN (chatbot_router): Tool {function_name} requires auth, but no JWT.")
                                     raise ValueError("Authentication token required for this action.")
@@ -393,6 +563,16 @@ async def handle_chatbot_message(
                                     function_result = await tool_function(droplinked_jwt=droplinked_jwt, page=page, limit=limit)
                                 elif function_name == "get_droplinked_shop_collections":
                                      function_result = await tool_function(droplinked_jwt=droplinked_jwt) 
+                                elif function_name == "get_product_by_id":
+                                    product_id = arguments.get("product_id")
+                                    function_result = await tool_function(droplinked_jwt=droplinked_jwt, product_id=product_id)
+                                elif function_name == "update_product":
+                                    product_id = arguments.get("product_id")
+                                    update_data = arguments.get("update_data", {})
+                                    function_result = await tool_function(droplinked_jwt=droplinked_jwt, product_id=product_id, update_data=update_data)
+                                elif function_name == "delete_product":
+                                    product_id = arguments.get("product_id")
+                                    function_result = await tool_function(droplinked_jwt=droplinked_jwt, product_id=product_id)
                                 else: # Should not be hit if logic is correct
                                     function_result = {"error": f"Tool {function_name} argument logic not fully implemented."}
                             elif function_name == "handle_image_upload_response":
@@ -413,6 +593,8 @@ async def handle_chatbot_message(
                                 if not droplinked_jwt:
                                     print(f"WARN (chatbot_router): Tool {function_name} requires auth, but no JWT.")
                                     raise ValueError("Authentication token required for this action.")
+                                function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
+                            elif function_name == "manage_product_operations":
                                 function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
                             else: 
                                 function_result = await tool_function(**arguments)

@@ -4,7 +4,50 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Droplinked MCP Assistant</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=4.0">
+    <!-- Add marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <style>
+        /* Force proper message sizing - override any cache issues */
+        .message-wrapper {
+            display: block !important;
+            width: 100% !important;
+            margin-bottom: 12px !important;
+        }
+        .message-wrapper.user {
+            text-align: right !important;
+        }
+        .message-wrapper.assistant {
+            text-align: left !important;
+        }
+        .message {
+            display: inline-block !important;
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: 80% !important;
+            word-wrap: break-word !important;
+            line-height: 1.4 !important;
+        }
+        
+        /* Fix markdown spacing issues */
+        .message p {
+            margin: 0.3em 0 !important;
+        }
+        .message ul, .message ol {
+            margin: 0.3em 0 !important;
+            padding-left: 1.2em !important;
+        }
+        .message li {
+            margin: 0.1em 0 !important;
+        }
+        .message h1, .message h2, .message h3 {
+            margin: 0.4em 0 0.2em 0 !important;
+            line-height: 1.2 !important;
+        }
+        .message strong {
+            font-weight: 600 !important;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -13,8 +56,7 @@
             <button id="new-chat-button">New Chat</button>
         </div>
         <div id="chat-window">
-            <!-- Initial welcome message -->
-            <div class="message assistant-message">Hello! How can I assist you with your Droplinked store today?</div>
+            <!-- Initial welcome message will be added by JavaScript -->
         </div>
         <div id="input-area">
             <input type="text" id="message-input" placeholder="Type your message..." autofocus>
@@ -26,6 +68,6 @@
             Current Session ID: <span id="session-id-display"></span>
         </div>
     </div>
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=4.0"></script>
 </body>
 </html>

@@ -10,6 +10,11 @@ A FastAPI-based intelligent assistant that integrates with the Droplinked e-comm
   - Automatic clothing detection - garments shown on models in different poses/settings
   - Cost-effective generation (~$0.033 for 3 professional mockups)
   - Smart prompts for fashion vs. general products
+- **📦 Complete Product Management**:
+  - **Get Product Details**: View comprehensive product information including pricing, media, and settings
+  - **Update Products**: Modify product fields like title, description, price, collection, tags, and more
+  - **Delete Products**: Remove products with safety confirmations
+  - **Product Discovery**: List and search through your product catalog
 - **Enhanced Image Upload Flow**: 
   - Upload multiple product images with intuitive workflow
   - Add images incrementally during product creation
@@ -23,6 +28,8 @@ A FastAPI-based intelligent assistant that integrates with the Droplinked e-comm
 - **OpenAI Assistant Integration**: Leverages OpenAI's Assistant API for intelligent responses
 - **Final Confirmation Process**: Always requires explicit user confirmation before creating products
 - **Real-time Communication**: WebSocket-like experience through FastAPI endpoints
+- **🔧 Robust Error Handling**: Enhanced error handling with automatic retries and comprehensive logging
+- **📊 Improved API Response Processing**: Better handling of various Droplinked API response formats
 
 ## 📋 Prerequisites
 
@@ -192,6 +199,15 @@ A comprehensive function that handles all product creation steps through action 
 - **list_my_droplinked_products** - Lists user's existing products with pagination
 - **get_droplinked_shop_collections** - Retrieves available product collections
 
+### **Product Management Functions**
+- **manage_product_operations** - Unified function for getting, updating, or deleting products (RECOMMENDED)
+  - **Action: `get_product`** - Retrieve detailed product information by ID
+  - **Action: `update_product`** - Modify product fields (title, description, price, collection, tags, etc.)
+  - **Action: `delete_product`** - Remove products with safety confirmations
+- **get_product_by_id** - Get detailed information about a specific product
+- **update_product** - Update specific product fields with granular control
+- **delete_product** - Delete products (requires explicit confirmation)
+
 ## 💬 Usage Examples
 
 ### Creating a Product with AI Mockup Generation
@@ -275,6 +291,69 @@ User: [Uploads dress image]
 Assistant: "🎨 AI Mockup Option available! Generate 3 professional mockups?"
 User: "yes"
 Assistant: "✅ Generated 3 AI mockups showing the dress on models in studio, lifestyle, and premium settings!"
+```
+
+### Getting Product Information
+```
+User: "Show me details for my product with ID 64f1a2b3c4d5e6f7g8h9i0j1"
+Assistant: "📦 **Product: Vintage Denim Jacket**
+- **ID**: 64f1a2b3c4d5e6f7g8h9i0j1
+- **Description**: Classic vintage-style denim jacket with distressed details
+- **Price Range**: $79.99 - $89.99
+- **Collection**: Fashion
+- **Type**: NORMAL
+- **Images**: 4 uploaded
+- **Status**: PUBLISHED
+- **Affiliate**: Yes (15% commission)"
+
+User: "What products do I have?"
+Assistant: [Lists products with titles and IDs, then asks which one to view in detail]
+```
+
+### Updating Products
+```
+User: "I want to update the price of my denim jacket to $95"
+Assistant: "I'll help you update your product. First, let me get the current details..."
+Assistant: [Shows current product information]
+Assistant: "I can see your Vintage Denim Jacket is currently priced at $89.99. Would you like me to update it to $95.00?"
+User: "Yes, update it"
+Assistant: "✅ **Product Updated Successfully**
+- **Product**: Vintage Denim Jacket (64f1a2b3c4d5e6f7g8h9i0j1)
+- **Updated Fields**: price
+- **Changes Applied**: Price updated from $89.99 to $95.00"
+
+User: "Change the description of product 64f1a2b3c4d5e6f7g8h9i0j1 to 'Premium vintage denim jacket with authentic distressed finish'"
+Assistant: [Gets current product, shows current description, then updates it]
+Assistant: "✅ Description updated successfully!"
+```
+
+### Deleting Products
+```
+User: "Delete product 64f1a2b3c4d5e6f7g8h9i0j1"
+Assistant: "⚠️ **Deletion Confirmation Required**
+
+I found this product to delete:
+📦 **Product: Vintage Denim Jacket**
+- **ID**: 64f1a2b3c4d5e6f7g8h9i0j1
+- **Price Range**: $95.00
+- **Images**: 4 uploaded
+- **Status**: PUBLISHED
+
+**This action is irreversible.** Are you sure you want to permanently delete this product?"
+User: "Yes, delete it"
+Assistant: "✅ Product 'Vintage Denim Jacket' (64f1a2b3c4d5e6f7g8h9i0j1) has been permanently deleted from your store."
+```
+
+### Product Discovery and Management
+```
+User: "Show me all my products in the Fashion collection"
+Assistant: [Lists products filtered by collection]
+
+User: "Which of my products can be affiliated?"
+Assistant: [Shows products with affiliate settings enabled]
+
+User: "Update all my products to allow affiliate marketing with 20% commission"
+Assistant: [Guides through bulk update process with confirmations]
 ```
 
 **Image Upload Features:**
@@ -370,17 +449,75 @@ Before deploying to production, consider:
    - Review console logs for detailed error messages from OpenAI API
    - Verify image download from URL is successful before AI processing
 
+7. **Product Update Errors (Fixed in v2.1.0)**
+   - ✅ **Resolved**: `'str' object has no attribute 'get'` error during product updates
+   - ✅ **Resolved**: Updates now properly handle both dictionary and string SKU responses from Droplinked API
+   - If you still see update errors, ensure you're using the latest version
+
+8. **Dependency Issues (Fixed in v2.1.0)**
+   - ✅ **Resolved**: Pillow import errors with `_imaging` module
+   - ✅ **Resolved**: `jiter` dependency issues affecting OpenAI client
+   - **Solution Applied**: Reinstalled Pillow 10.4.0 and jiter for compatibility
+   - If you encounter dependency issues, try:
+     ```bash
+     pip uninstall Pillow jiter -y
+     pip install Pillow==10.4.0 jiter
+     ```
+
+9. **Server Startup Issues**
+   - **ImportError for PIL/_imaging**: Run `pip uninstall Pillow -y && pip install Pillow==10.4.0`
+   - **No module named 'jiter.jiter'**: Run `pip uninstall jiter -y && pip install jiter`
+   - **OpenAI client failures**: Ensure both OpenAI and jiter packages are properly installed
+   - Check Python version compatibility (requires Python 3.8+)
+
+10. **False Error Messages After Successful Operations**
+    - ✅ **Fixed**: Product updates that actually succeeded but showed error messages
+    - ✅ **Fixed**: SKU response parsing that caused post-operation errors
+    - Operations now correctly report success/failure status
+
+### Debugging Steps
+
+1. **Check Server Status**
+   ```bash
+   # Verify Python processes are running
+   Get-Process | Where-Object {$_.ProcessName -like "*python*"}
+   
+   # Test server response (PowerShell)
+   Invoke-WebRequest -Uri http://localhost:8000/ -UseBasicParsing
+   ```
+
+2. **Review Logs**
+   - Check console output for detailed error messages
+   - Look for DEBUG/ERROR prefixed lines
+   - API response codes and error details are logged
+
+3. **Verify Dependencies**
+   ```bash
+   pip list | grep -E "(openai|pillow|jiter|fastapi)"
+   ```
+
+4. **Restart Fresh**
+   ```bash
+   # Stop server (Ctrl+C)
+   # Reinstall problematic dependencies if needed
+   pip uninstall Pillow jiter -y
+   pip install Pillow==10.4.0 jiter
+   # Restart server
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   ```
+
 ## 📝 Dependencies
 
 - **FastAPI**: Modern web framework for building APIs
 - **Uvicorn**: ASGI server for running FastAPI applications
-- **HTTPX**: Async HTTP client for API calls
+- **HTTPX**: Async HTTP client for API calls with retry logic
 - **Pydantic**: Data validation using Python type annotations
 - **python-dotenv**: Environment variable management
 - **Jinja2**: Template engine for HTML rendering
 - **OpenAI**: Official OpenAI Python client (includes GPT-Image-1 support)
 - **python-multipart**: Support for multipart form data (file uploads)
-- **Pillow**: Image processing for format conversion and optimization
+- **Pillow**: Image processing for format conversion and optimization (v10.4.0 for stability)
+- **jiter**: JSON parsing library required by OpenAI client
 
 ## 🤝 Contributing
 
@@ -403,6 +540,15 @@ For support and questions:
 - Verify OpenAI Assistant setup and tool configurations
 
 ## 🔄 Version History
+
+- **v2.1.0**: Bug Fixes & Stability Improvements
+  - 🐛 **Fixed Product Update Errors**: Resolved `'str' object has no attribute 'get'` error during product updates
+  - 🔧 **Enhanced SKU Response Handling**: Better processing of Droplinked API responses with mixed SKU formats
+  - 📦 **Dependency Fixes**: Resolved Pillow import errors and jiter compatibility issues
+  - 🚀 **Improved Server Stability**: Better error handling and recovery mechanisms
+  - 🛠️ **Enhanced Debugging**: More detailed logging and troubleshooting guidance
+  - ✅ **Accurate Status Reporting**: Fixed false error messages after successful operations
+  - 🔄 **Robust Request Handling**: Added retry logic and better timeout management
 
 - **v2.0.0**: AI Mockup Generation & Streamlined Workflow
   - 🎨 **AI Mockup Generation**: Professional product mockups using OpenAI's GPT-Image-1

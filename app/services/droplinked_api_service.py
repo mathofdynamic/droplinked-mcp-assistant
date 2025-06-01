@@ -4,12 +4,77 @@ from fastapi import HTTPException, UploadFile
 import json
 import traceback
 import time
+import asyncio
 
 DROPLINKED_API_BASE_URL = "https://apiv3.droplinked.com"
 DROPLINKED_UPLOAD_URL = "https://tools.droplinked.com/upload"
 
+# Connection settings for better reliability
+HTTPX_TIMEOUT = httpx.Timeout(connect=15.0, read=30.0, write=30.0, pool=10.0)
+HTTPX_LIMITS = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+
 # Session-based state storage for product creation
 PRODUCT_CREATION_SESSIONS = {}
+
+async def make_robust_request(method: str, url: str, headers: dict, **kwargs):
+    """
+    Make a robust HTTP request with retries and better error handling
+    """
+    max_retries = 3
+    base_delay = 1.0
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"DEBUG (robust_request): Attempt {attempt + 1}/{max_retries} for {method} {url}")
+            
+            async with httpx.AsyncClient(
+                timeout=HTTPX_TIMEOUT,
+                limits=HTTPX_LIMITS,
+                follow_redirects=True
+            ) as client:
+                if method.upper() == "GET":
+                    response = await client.get(url, headers=headers, **kwargs)
+                elif method.upper() == "POST":
+                    response = await client.post(url, headers=headers, **kwargs)
+                elif method.upper() == "PUT":
+                    response = await client.put(url, headers=headers, **kwargs)
+                elif method.upper() == "DELETE":
+                    response = await client.delete(url, headers=headers, **kwargs)
+                else:
+                    raise ValueError(f"Unsupported HTTP method: {method}")
+                
+                print(f"DEBUG (robust_request): Success on attempt {attempt + 1}, Status: {response.status_code}")
+                return response
+                
+        except httpx.TimeoutException as e:
+            print(f"WARNING (robust_request): Timeout on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                print(f"DEBUG (robust_request): Waiting {delay}s before retry...")
+                await asyncio.sleep(delay)
+            else:
+                raise HTTPException(status_code=504, detail=f"Request timed out after {max_retries} attempts")
+                
+        except httpx.ConnectError as e:
+            print(f"WARNING (robust_request): Connection error on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                print(f"DEBUG (robust_request): Waiting {delay}s before retry...")
+                await asyncio.sleep(delay)
+            else:
+                raise HTTPException(status_code=503, detail=f"Connection failed after {max_retries} attempts")
+                
+        except httpx.RequestError as e:
+            print(f"WARNING (robust_request): Request error on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                print(f"DEBUG (robust_request): Waiting {delay}s before retry...")
+                await asyncio.sleep(delay)
+            else:
+                raise HTTPException(status_code=503, detail=f"Network error after {max_retries} attempts: {str(e)}")
+    
+    # Should never reach here
+    raise HTTPException(status_code=500, detail="Unexpected error in robust request")
 
 async def list_user_products(droplinked_jwt: str, page: int = 1, limit: int = 10) -> dict:
     """
@@ -620,3 +685,301 @@ async def upload_image_to_droplinked(droplinked_jwt: str, image_file: UploadFile
         print(f"ERROR (api_service - upload_image): Unexpected error: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Unexpected error uploading image: {str(e)}")
+
+async def get_product_by_id(droplinked_jwt: str, product_id: str) -> dict:
+    """
+    Fetches a specific product by ID from the Droplinked API.
+    Returns the parsed JSON dictionary from the API response.
+    """
+    if not droplinked_jwt:
+        print("ERROR (api_service - get_product_by_id): No JWT provided.")
+        raise HTTPException(status_code=401, detail="Authentication token missing for getting product.")
+
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Product ID is required.")
+
+    headers = {"Authorization": f"Bearer {droplinked_jwt}", "Accept": "application/json"}
+    url = f"{DROPLINKED_API_BASE_URL}/product/{product_id}"
+
+    print(f"DEBUG (api_service - get_product_by_id): Calling Droplinked GET {url}, token: {droplinked_jwt[:20]}...")
+    
+    raw_response_text = "" 
+    try:
+        # Use robust request method with retries
+        response = await make_robust_request(
+            method="GET",
+            url=url,
+            headers=headers
+        )
+        
+        print(f"DEBUG (api_service - get_product_by_id): Response Status: {response.status_code}")
+        raw_response_text = response.text 
+
+        response.raise_for_status() 
+
+        parsed_json_response = response.json() 
+        
+        if not isinstance(parsed_json_response, dict):
+            print(f"ERROR (api_service - get_product_by_id): Parsed response is not a dictionary! Type: {type(parsed_json_response)}")
+            raise HTTPException(status_code=502, detail="Droplinked API returned an unexpected format for product (not a dictionary).")
+
+        return parsed_json_response
+
+    except HTTPException as e:
+        # Re-raise HTTPExceptions from robust_request
+        raise e
+    except httpx.HTTPStatusError as e:
+        error_message = f"Failed to get product (Droplinked API Status: {e.response.status_code})."
+        try:
+            error_details = e.response.json()
+            msg_from_api = error_details.get('message', error_details.get('data', {}).get('message', e.response.text[:100]))
+            if isinstance(msg_from_api, list): msg_from_api = ", ".join(msg_from_api)
+            error_message += f" API Message: {msg_from_api}"
+        except json.JSONDecodeError: error_message += f" Raw Error (not JSON): {e.response.text[:200]}"
+        print(f"ERROR (api_service - get_product_by_id): HTTPStatusError: {error_message}")
+        raise HTTPException(status_code=e.response.status_code, detail=error_message)
+    except json.JSONDecodeError as e_json:
+        print(f"ERROR (api_service - get_product_by_id): json.JSONDecodeError: {str(e_json)}")
+        print(f"ERROR (api_service - get_product_by_id): Non-JSON response text that failed to parse: {raw_response_text[:500]}")
+        raise HTTPException(status_code=502, detail="Invalid JSON response from Droplinked for product.")
+    except Exception as e:
+        print(f"ERROR (api_service - get_product_by_id): Unexpected error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Unexpected error getting product: {str(e)}")
+
+
+async def update_product(droplinked_jwt: str, product_id: str, update_data: dict) -> dict:
+    """
+    Updates a specific product by ID via the Droplinked API.
+    update_data should contain the fields to update (title, description, price, etc.)
+    Returns the updated product data from the API response.
+    """
+    if not droplinked_jwt:
+        print("ERROR (api_service - update_product): No JWT provided.")
+        raise HTTPException(status_code=401, detail="Authentication token missing for updating product.")
+
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Product ID is required.")
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Update data is required.")
+
+    # Try to get current product data, but continue even if it fails
+    current_product = None
+    try:
+        print(f"DEBUG (api_service - update_product): Attempting to fetch current product data...")
+        current_product_response = await get_product_by_id(droplinked_jwt, product_id)
+        current_product = current_product_response.get('data', {})
+        
+        print(f"DEBUG (api_service - update_product): Current product structure keys: {list(current_product.keys())}")
+        
+        # Handle price updates properly with full product context
+        if 'price' in update_data and current_product:
+            new_price = update_data.pop('price')  # Remove from update_data
+            print(f"DEBUG (api_service - update_product): Updating price to {new_price}")
+            
+            # Check if product has skuIDs (variants) or uses simple pricing
+            sku_ids = current_product.get('skuIDs', [])
+            if sku_ids:
+                print(f"DEBUG (api_service - update_product): Product has {len(sku_ids)} SKUs, updating SKU prices")
+                # Update all SKU prices - make sure to update BOTH price and rawPrice
+                for sku in sku_ids:
+                    sku['price'] = new_price
+                    sku['rawPrice'] = new_price  # This is likely the actual displayed price!
+                    print(f"DEBUG (api_service - update_product): Updated SKU {sku.get('_id', 'unknown')} price: {new_price}, rawPrice: {new_price}")
+                update_data['skuIDs'] = sku_ids
+            else:
+                # Simple product, update direct price
+                print(f"DEBUG (api_service - update_product): Simple product, updating direct price")
+                update_data['price'] = new_price
+            
+            # CRITICAL: Also update the lowestPrice and highestPrice fields!
+            # These are likely what's displayed in the Droplinked interface
+            update_data['lowestPrice'] = new_price
+            update_data['highestPrice'] = new_price
+            print(f"DEBUG (api_service - update_product): Also updating lowestPrice and highestPrice to {new_price}")
+        
+        # Preserve important fields to prevent status changes
+        if current_product:
+            preserve_fields = ['publish_status', 'productCollectionID', 'product_type', 'shippingType']
+            for field in preserve_fields:
+                if field in current_product and field not in update_data:
+                    field_value = current_product[field]
+                    
+                    # Special handling for productCollectionID - extract just the ID string
+                    if field == 'productCollectionID' and isinstance(field_value, dict):
+                        field_value = field_value.get('_id', field_value)
+                        print(f"DEBUG (api_service - update_product): Extracting productCollectionID: {field_value}")
+                    
+                    update_data[field] = field_value
+                    print(f"DEBUG (api_service - update_product): Preserving {field}: {field_value}")
+        
+    except Exception as e:
+        print(f"WARNING (api_service - update_product): Could not fetch current product data: {e}")
+        print(f"DEBUG (api_service - update_product): Attempting fallback direct update approach...")
+        
+        # Fallback: Try direct price update using common Droplinked structure
+        if 'price' in update_data:
+            new_price = update_data.get('price')
+            print(f"DEBUG (api_service - update_product): FALLBACK - Direct price update to {new_price}")
+            
+            # Use both approaches in case one works
+            # Method 1: Direct price field
+            update_data['price'] = new_price
+            
+            # Method 2: Update lowestPrice and highestPrice (likely what's displayed!)
+            update_data['lowestPrice'] = new_price
+            update_data['highestPrice'] = new_price
+            
+            # Method 3: Assume SKU structure and update that too
+            fallback_sku = [{
+                "price": new_price,
+                "rawPrice": new_price  # Make sure both fields match!
+            }]
+            update_data['sku'] = fallback_sku
+            
+            # Method 4: Also try skuIDs format
+            fallback_sku_ids = [{
+                "price": new_price,
+                "rawPrice": new_price  # Make sure both fields match!
+            }]
+            update_data['skuIDs'] = fallback_sku_ids
+            
+            print(f"DEBUG (api_service - update_product): FALLBACK - Using multiple price update strategies including lowestPrice/highestPrice: {new_price}")
+
+    headers = {
+        "Authorization": f"Bearer {droplinked_jwt}", 
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    url = f"{DROPLINKED_API_BASE_URL}/product/{product_id}"
+
+    print(f"DEBUG (api_service - update_product): Calling Droplinked PUT {url}, token: {droplinked_jwt[:20]}...")
+    print(f"DEBUG (api_service - update_product): Update data: {update_data}")
+    
+    raw_response_text = "" 
+    try:
+        # Use robust request method with retries
+        response = await make_robust_request(
+            method="PUT",
+            url=url,
+            headers=headers,
+            json=update_data
+        )
+        
+        print(f"DEBUG (api_service - update_product): Response Status: {response.status_code}")
+        raw_response_text = response.text 
+
+        response.raise_for_status() 
+
+        parsed_json_response = response.json() 
+        
+        if not isinstance(parsed_json_response, dict):
+            print(f"ERROR (api_service - update_product): Parsed response is not a dictionary! Type: {type(parsed_json_response)}")
+            raise HTTPException(status_code=502, detail="Droplinked API returned an unexpected format for updated product (not a dictionary).")
+
+        print(f"DEBUG (api_service - update_product): ✅ Product update successful!")
+        
+        # Log the full response to understand the API structure
+        if isinstance(parsed_json_response, dict) and 'data' in parsed_json_response:
+            updated_product = parsed_json_response['data']
+            print(f"DEBUG (api_service - update_product): Updated product title: {updated_product.get('title', 'N/A')}")
+            print(f"DEBUG (api_service - update_product): Updated product lowestPrice: {updated_product.get('lowestPrice', 'N/A')}")
+            print(f"DEBUG (api_service - update_product): Updated product highestPrice: {updated_product.get('highestPrice', 'N/A')}")
+            
+            # Check SKU prices in response - handle both dict and string SKUs
+            response_skus = updated_product.get('skuIDs', [])
+            for i, sku in enumerate(response_skus):
+                # Handle case where sku might be a string ID instead of a dict
+                if isinstance(sku, dict):
+                    sku_id = sku.get('_id', f'sku_{i}')
+                    sku_price = sku.get('price', 'N/A')
+                    sku_raw_price = sku.get('rawPrice', 'N/A')
+                    print(f"DEBUG (api_service - update_product): Response SKU {sku_id}: price={sku_price}, rawPrice={sku_raw_price}")
+                elif isinstance(sku, str):
+                    print(f"DEBUG (api_service - update_product): Response SKU {i}: ID={sku} (string reference)")
+                else:
+                    print(f"DEBUG (api_service - update_product): Response SKU {i}: Unexpected type={type(sku)}, value={sku}")
+        
+        return parsed_json_response
+
+    except HTTPException as e:
+        # Re-raise HTTPExceptions from robust_request
+        raise e
+    except httpx.HTTPStatusError as e:
+        error_message = f"Failed to update product (Droplinked API Status: {e.response.status_code})."
+        try:
+            error_details = e.response.json()
+            msg_from_api = error_details.get('message', error_details.get('data', {}).get('message', e.response.text[:100]))
+            if isinstance(msg_from_api, list): msg_from_api = ", ".join(msg_from_api)
+            error_message += f" API Message: {msg_from_api}"
+        except json.JSONDecodeError: error_message += f" Raw Error (not JSON): {e.response.text[:200]}"
+        print(f"ERROR (api_service - update_product): HTTPStatusError: {error_message}")
+        raise HTTPException(status_code=e.response.status_code, detail=error_message)
+    except json.JSONDecodeError as e_json:
+        print(f"ERROR (api_service - update_product): json.JSONDecodeError: {str(e_json)}")
+        print(f"ERROR (api_service - update_product): Non-JSON response text that failed to parse: {raw_response_text[:500]}")
+        raise HTTPException(status_code=502, detail="Invalid JSON response from Droplinked for updated product.")
+    except Exception as e:
+        print(f"ERROR (api_service - update_product): Unexpected error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Unexpected error updating product: {str(e)}")
+
+
+async def delete_product(droplinked_jwt: str, product_id: str) -> dict:
+    """
+    Deletes a specific product by ID via the Droplinked API.
+    Returns a confirmation message from the API response.
+    """
+    if not droplinked_jwt:
+        print("ERROR (api_service - delete_product): No JWT provided.")
+        raise HTTPException(status_code=401, detail="Authentication token missing for deleting product.")
+
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Product ID is required.")
+
+    headers = {"Authorization": f"Bearer {droplinked_jwt}", "Accept": "application/json"}
+    url = f"{DROPLINKED_API_BASE_URL}/product/{product_id}"
+
+    print(f"DEBUG (api_service - delete_product): Calling Droplinked DELETE {url}, token: {droplinked_jwt[:20]}...")
+    
+    raw_response_text = "" 
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.delete(url, headers=headers, timeout=20.0)
+            
+            print(f"DEBUG (api_service - delete_product): Response Status: {response.status_code}")
+            raw_response_text = response.text 
+
+            response.raise_for_status() 
+
+            # Delete endpoint might return just a success message, not necessarily JSON
+            try:
+                parsed_json_response = response.json() 
+                if not isinstance(parsed_json_response, dict):
+                    # If it's not a dict, wrap it in a success response
+                    return {"status": "success", "message": "Product deleted successfully", "response": parsed_json_response}
+                return parsed_json_response
+            except json.JSONDecodeError:
+                # If response is not JSON, assume success if status code is 2xx
+                return {"status": "success", "message": "Product deleted successfully", "response": raw_response_text}
+
+        except httpx.HTTPStatusError as e:
+            error_message = f"Failed to delete product (Droplinked API Status: {e.response.status_code})."
+            try:
+                error_details = e.response.json()
+                msg_from_api = error_details.get('message', error_details.get('data', {}).get('message', e.response.text[:100]))
+                if isinstance(msg_from_api, list): msg_from_api = ", ".join(msg_from_api)
+                error_message += f" API Message: {msg_from_api}"
+            except json.JSONDecodeError: error_message += f" Raw Error (not JSON): {e.response.text[:200]}"
+            print(f"ERROR (api_service - delete_product): HTTPStatusError: {error_message}")
+            raise HTTPException(status_code=e.response.status_code, detail=error_message)
+
+        except httpx.RequestError as e:
+            print(f"ERROR (api_service - delete_product): httpx.RequestError: {str(e)}")
+            raise HTTPException(status_code=503, detail=f"Network error deleting product: {str(e)}")
+
+        except Exception as e:
+            print(f"ERROR (api_service - delete_product): Unexpected error: {str(e)}")
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Unexpected error deleting product: {str(e)}")

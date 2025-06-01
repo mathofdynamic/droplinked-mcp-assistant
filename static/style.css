@@ -46,27 +46,141 @@ body {
     border-bottom: 1px solid #e0e0e0;
 }
 
-.message {
+/* Simple message wrapper for alignment */
+.message-wrapper {
+    display: block;
     margin-bottom: 12px;
+    width: 100%;
+    clear: both;
+}
+
+.message-wrapper.user {
+    text-align: right;
+}
+
+.message-wrapper.assistant {
+    text-align: left;
+}
+
+.message {
     padding: 10px 15px;
     border-radius: 18px;
     line-height: 1.4;
     max-width: 80%;
+    width: auto !important;
+    min-width: 0 !important;
+    display: inline-block !important;
     word-wrap: break-word;
+    /* Smooth transition setup for animation with dramatic ease-out */
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.8s cubic-bezier(0.165, 0.84, 0.44, 1), 
+                transform 0.8s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+/* Animation trigger class */
+.message.animate-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Enhanced typography for better markdown display */
+.message h1, .message h2, .message h3 {
+    margin: 0.4em 0 0.2em 0;
+    line-height: 1.2;
+}
+
+.message h1 {
+    font-size: 1.3em;
+    font-weight: 600;
+}
+
+.message h2 {
+    font-size: 1.2em;
+    font-weight: 600;
+}
+
+.message h3 {
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+.message p {
+    margin: 0.3em 0;
+}
+
+.message ul, .message ol {
+    margin: 0.3em 0;
+    padding-left: 1.2em;
+}
+
+.message li {
+    margin: 0.1em 0;
+}
+
+.message strong {
+    font-weight: 600;
+}
+
+.message em {
+    font-style: italic;
+}
+
+.message code {
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+}
+
+.message pre {
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+}
+
+.message blockquote {
+    border-left: 3px solid #007bff;
+    margin: 0.5em 0;
+    padding-left: 1em;
+    font-style: italic;
+}
+
+/* Product list specific styling */
+.message .product-emoji {
+    font-size: 1.2em;
+}
+
+.message .product-id {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9em;
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
 }
 
 .user-message {
-    background-color: #007bff; /* Primary blue */
+    background-color: #007bff;
     color: white;
-    margin-left: auto;
     border-bottom-right-radius: 5px;
 }
 
 .assistant-message {
-    background-color: #e9ecef; /* Light grey */
+    background-color: #e9ecef;
     color: #333;
-    margin-right: auto;
     border-bottom-left-radius: 5px;
+}
+
+/* Special styling for assistant messages with markdown */
+.assistant-message strong {
+    color: #007bff;
+}
+
+.assistant-message h1, .assistant-message h2, .assistant-message h3 {
+    color: #007bff;
 }
 
 #input-area {
@@ -127,6 +241,16 @@ body {
     flex-wrap: wrap;
     gap: 10px;
     margin: 10px 0;
+    /* Setup for smooth animation with dramatic ease-out */
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s cubic-bezier(0.165, 0.84, 0.44, 1), 
+                transform 0.6s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.image-preview.animate-in {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .image-preview img {
@@ -144,6 +268,16 @@ body {
     padding: 10px;
     margin: 10px 0;
     color: #1976d2;
+    /* Setup for smooth animation with dramatic ease-out */
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.6s cubic-bezier(0.165, 0.84, 0.44, 1), 
+                transform 0.6s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.upload-progress.animate-in {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .session-info {

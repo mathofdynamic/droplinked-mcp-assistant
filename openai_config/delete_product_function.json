@@ -1,0 +1,14 @@
+{
+  "name": "delete_product",
+  "description": "Delete a product from the store. This action is irreversible - always confirm with the user before executing.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "product_id": {
+        "type": "string",
+        "description": "The ID of the product to delete"
+      }
+    },
+    "required": ["product_id"]
+  }
+} 

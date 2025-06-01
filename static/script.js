@@ -10,30 +10,107 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentSessionId = '';
     let uploadedImageUrls = [];
 
+    // Configure marked.js for better rendering
+    function configureMarked() {
+        if (typeof marked !== 'undefined') {
+            console.log('Marked.js loaded successfully');
+            marked.setOptions({
+                breaks: true,        // Convert line breaks to <br>
+                gfm: true,          // GitHub Flavored Markdown
+                sanitize: false,    // Allow HTML
+                smartypants: false  // Disable smart quotes
+            });
+            return true;
+        } else {
+            console.error('Marked.js failed to load');
+            return false;
+        }
+    }
+
     function generateSessionId() {
         return "session_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     }
 
     function initializeSession() {
+        // Add initial welcome message with animation
+        setTimeout(() => {
+            addMessage("Hello! How can I assist you with your Droplinked store today?", "assistant");
+        }, 300);
+        
         // If there's a token, the user is "logged in" from the client's perspective
         const token = sessionStorage.getItem('mcp_access_token');
         if (token) {
-            addMessage("Welcome back! Your previous session is active.", "assistant");
+            setTimeout(() => {
+                addMessage("Welcome back! Your previous session is active.", "assistant");
+            }, 600);
         } else {
-            addMessage("Welcome! Please go to the <a href='/login'>login page</a> if you need to perform account actions.", "assistant");
+            setTimeout(() => {
+                addMessage("Welcome! Please go to the <a href='/login'>login page</a> if you need to perform account actions.", "assistant");
+            }, 600);
         }
+        
         currentSessionId = sessionStorage.getItem('mcp_chat_session_id') || generateSessionId();
         sessionStorage.setItem('mcp_chat_session_id', currentSessionId);
         sessionIdDisplay.textContent = currentSessionId;
         console.log("Chat UI initialized with Session ID:", currentSessionId);
     }
 
-    function addMessage(message, sender) {
+    function addMessage(message, sender, isMarkdown = true) {
+        console.log('=== ADD MESSAGE DEBUG ===');
+        console.log('Message:', message);
+        console.log('Sender:', sender);
+        
+        // Create simple wrapper for alignment
+        const messageWrapper = document.createElement('div');
+        messageWrapper.classList.add('message-wrapper', sender);
+        
         const messageElement = document.createElement('div');
         messageElement.classList.add('message', sender + '-message');
-        messageElement.innerHTML = message.replace(/\n/g, '<br>');
-        chatWindow.appendChild(messageElement);
+        
+        // Process the message content
+        let processedMessage = message;
+        
+        // FORCE markdown processing for assistant messages
+        if (sender === 'assistant') {
+            if (typeof marked !== 'undefined') {
+                try {
+                    processedMessage = marked.parse(message);
+                } catch (error) {
+                    console.error('Markdown parsing failed:', error);
+                    processedMessage = message
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                        .replace(/\n/g, '<br>');
+                }
+            } else {
+                processedMessage = message
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/- (.*)/g, '• $1')
+                    .replace(/\n/g, '<br>');
+            }
+        } else {
+            processedMessage = message.replace(/\n/g, '<br>');
+        }
+        
+        messageElement.innerHTML = processedMessage;
+        
+        // Force animation with inline styles - start invisible
+        messageElement.style.opacity = '0';
+        messageElement.style.transform = 'translateY(30px)';
+        messageElement.style.transition = 'opacity 0.8s cubic-bezier(0.165, 0.84, 0.44, 1), transform 0.8s cubic-bezier(0.165, 0.84, 0.44, 1)';
+        
+        // Add message to wrapper, then wrapper to chat window
+        messageWrapper.appendChild(messageElement);
+        chatWindow.appendChild(messageWrapper);
         chatWindow.scrollTop = chatWindow.scrollHeight;
+        
+        // Force animation with longer delay to be visible
+        setTimeout(() => {
+            console.log('TRIGGERING ANIMATION NOW!');
+            messageElement.style.opacity = '1';
+            messageElement.style.transform = 'translateY(0)';
+        }, 200);
     }
 
     function showImagePreview(files) {
@@ -51,6 +128,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         chatWindow.appendChild(previewContainer);
         chatWindow.scrollTop = chatWindow.scrollHeight;
+        
+        // Trigger animation
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                previewContainer.classList.add('animate-in');
+            }, 10);
+        });
+        
         return previewContainer;
     }
 
@@ -58,8 +143,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const progressElement = document.createElement('div');
         progressElement.classList.add('upload-progress');
         progressElement.textContent = message;
+        
         chatWindow.appendChild(progressElement);
         chatWindow.scrollTop = chatWindow.scrollHeight;
+        
+        // Trigger animation
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                progressElement.classList.add('animate-in');
+            }, 10);
+        });
+        
         return progressElement;
     }
 
@@ -169,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const data = await response.json();
             if (data.response_message) {
-                addMessage(data.response_message, 'assistant');
+                addMessage(data.response_message, 'assistant', true); // Enable markdown parsing
             } else if (data.error) { 
                 addMessage(`Error: ${data.error}`, 'assistant');
             } else {
@@ -186,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageText = messageInput.value.trim();
         if (messageText === '') return;
 
-        addMessage(messageText, 'user');
+        addMessage(messageText, 'user', false); // No markdown for user messages
         messageInput.value = '';
         
         await sendMessageToBot(messageText);
@@ -226,5 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
         event.target.value = '';
     });
 
+    // Initialize everything
+    configureMarked();
     initializeSession();
 });
