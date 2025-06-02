@@ -5,6 +5,11 @@ import json
 import traceback
 import time
 import asyncio
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 DROPLINKED_API_BASE_URL = "https://apiv3.droplinked.com"
 DROPLINKED_UPLOAD_URL = "https://tools.droplinked.com/upload"

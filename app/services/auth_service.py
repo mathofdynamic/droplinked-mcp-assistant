@@ -12,7 +12,7 @@ load_dotenv()
 # --- Configuration ---
 # In-memory store for MVP - REPLACE with Redis or a proper session database for production
 SESSION_TOKENS: dict[str, str] = {}
-DROPLINKED_API_BASE_URL = "https://apiv3.droplinked.com" # Your Droplinked API base URL
+DROPLINKED_API_BASE_URL = os.getenv("DROPLINKED_API_BASE_URL", "https://apiv3.droplinked.com")  # Load from .env with fallback
 
 # Get the static JWT and the associated test user email from environment variables
 STATIC_JWT_FOR_TEST_USER = os.getenv("STATIC_DROPLINKED_JWT")
