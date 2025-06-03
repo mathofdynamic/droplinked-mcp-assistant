@@ -433,7 +433,8 @@ AVAILABLE_TOOLS = {
     "update_product": droplinked_api_service.update_product,
     "delete_product": droplinked_api_service.delete_product,
     "manage_product_operations": manage_product_operations,
-    # Support escalation function
+    # Support escalation function - updated mapping
+    "handle_user_support": support_service.handle_user_support,
     "escalate_to_human_support": support_service.escalate_to_human_support,
 }
 
@@ -598,6 +599,23 @@ async def handle_chatbot_message(
                                 function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
                             elif function_name == "manage_product_operations":
                                 function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
+                            elif function_name == "handle_user_support":
+                                # Handle support escalation
+                                action = arguments.get("action", "escalate_to_support")
+                                user_email = arguments.get("user_email")
+                                issue_description = arguments.get("issue_description", "")
+                                category = arguments.get("category", "support")
+                                conversation_history = arguments.get("conversation_history", "")
+                                
+                                function_result = await tool_function(
+                                    action=action,
+                                    user_email=user_email,
+                                    issue_description=issue_description,
+                                    category=category,
+                                    conversation_history=conversation_history,
+                                    jwt_token=droplinked_jwt,
+                                    session_id=session_id  # Pass session_id for automatic conversation retrieval
+                                )
                             elif function_name == "escalate_to_human_support":
                                 # Handle support escalation
                                 user_email = arguments.get("user_email")

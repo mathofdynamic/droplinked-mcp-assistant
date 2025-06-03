@@ -3,13 +3,17 @@ import requests
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 import httpx
 import base64
+from dataclasses import dataclass
 
 load_dotenv()
 
+# OpenAI client and SESSION_THREADS are now imported inside functions to avoid timing issues
+
+@dataclass
 class SupportReportData:
     """Data structure for support escalation reports"""
     def __init__(self, 
@@ -186,28 +190,117 @@ async def send_support_escalation(
 
 def decode_jwt_payload(jwt_token: str) -> Dict[str, Any]:
     """
-    Decode JWT payload to extract user information like email.
-    Note: This only decodes the payload, doesn't verify signature.
+    Decode JWT payload without verification (for extracting email only).
+    Warning: This should only be used for extracting user info, not for authentication.
     """
     try:
-        # Split the JWT token (header.payload.signature)
+        # JWT structure: header.payload.signature
         parts = jwt_token.split('.')
         if len(parts) != 3:
+            print("DEBUG: Invalid JWT format - not 3 parts")
             return {}
         
         # Decode the payload (second part)
-        payload = parts[1]
-        # Add padding if needed for base64 decoding
-        payload += '=' * (4 - len(payload) % 4)
+        payload_part = parts[1]
+        # Add padding if needed
+        missing_padding = len(payload_part) % 4
+        if missing_padding:
+            payload_part += '=' * (4 - missing_padding)
         
-        # Decode from base64
-        decoded_bytes = base64.urlsafe_b64decode(payload)
-        decoded_payload = json.loads(decoded_bytes.decode('utf-8'))
-        
-        return decoded_payload
+        decoded_bytes = base64.b64decode(payload_part)
+        payload = json.loads(decoded_bytes.decode('utf-8'))
+        print(f"DEBUG: Successfully decoded JWT payload")
+        return payload
     except Exception as e:
-        print(f"ERROR: Failed to decode JWT: {e}")
+        print(f"DEBUG: Error decoding JWT payload: {e}")
         return {}
+
+def retrieve_conversation_history(session_id: str = None, thread_id: str = None, jwt_token: str = None) -> str:
+    """
+    Retrieve conversation history from OpenAI thread.
+    Can use session_id to find thread_id, or use thread_id directly.
+    """
+    try:
+        # Import OpenAI client and session threads inside function to avoid timing issues
+        try:
+            from app.main import OPENAI_CLIENT
+            openai_client = OPENAI_CLIENT
+        except ImportError:
+            print("WARN (support_service): Could not import OpenAI client from main")
+            return ""
+        
+        try:
+            from app.routers.chatbot_router import SESSION_THREADS
+            session_threads = SESSION_THREADS
+        except ImportError:
+            print("WARN (support_service): Could not import SESSION_THREADS")
+            session_threads = {}
+        
+        if not openai_client:
+            print("WARN (support_service): OpenAI client not available for conversation retrieval")
+            return ""
+        
+        print(f"DEBUG (support_service): OpenAI client available: {openai_client is not None}")
+        print(f"DEBUG (support_service): SESSION_THREADS available with {len(session_threads)} sessions")
+        
+        # Get thread_id from session_id if not provided
+        if not thread_id and session_id:
+            if session_id in session_threads:
+                thread_id = session_threads[session_id]
+                print(f"DEBUG (support_service): Found thread_id {thread_id} for session {session_id}")
+            else:
+                print(f"WARN (support_service): Session {session_id} not found in SESSION_THREADS")
+                print(f"DEBUG (support_service): Available sessions: {list(session_threads.keys())}")
+        
+        if not thread_id:
+            print("WARN (support_service): No thread_id available for conversation retrieval")
+            return ""
+        
+        print(f"DEBUG (support_service): Attempting to retrieve messages from thread {thread_id}")
+        
+        # Retrieve messages from the thread
+        messages = openai_client.beta.threads.messages.list(
+            thread_id=thread_id,
+            order="asc",  # Get messages in chronological order
+            limit=20  # Get last 20 messages
+        )
+        
+        if not messages.data:
+            print("DEBUG (support_service): No messages found in thread")
+            return ""
+        
+        print(f"DEBUG (support_service): Found {len(messages.data)} messages in thread")
+        
+        # Format conversation history
+        conversation_parts = []
+        for message in messages.data:
+            role = message.role
+            content = ""
+            
+            # Extract text content from message
+            for content_block in message.content:
+                if content_block.type == 'text':
+                    content = content_block.text.value
+                    break
+            
+            if content:
+                conversation_parts.append(f"{role.capitalize()}: {content}")
+                print(f"DEBUG (support_service): Added {role} message: {content[:50]}...")
+        
+        # Join all messages with newlines
+        full_conversation = "\n\n".join(conversation_parts)
+        
+        print(f"DEBUG (support_service): Retrieved {len(messages.data)} messages from thread {thread_id}")
+        print(f"DEBUG (support_service): Conversation length: {len(full_conversation)} characters")
+        print(f"DEBUG (support_service): First 200 chars: {full_conversation[:200]}")
+        
+        return full_conversation
+        
+    except Exception as e:
+        print(f"ERROR (support_service): Failed to retrieve conversation history: {e}")
+        import traceback
+        traceback.print_exc()
+        return ""
 
 def should_offer_human_support(conversation_history: str) -> bool:
     """
@@ -259,11 +352,12 @@ async def escalate_to_human_support(
     issue_description: str = "",
     category: str = "support", 
     conversation_history: str = "",
-    jwt_token: str = None
+    jwt_token: str = None,
+    session_id: str = None
 ) -> Dict[str, Any]:
     """
     Escalate user issue to human support via Telegram with BRIEF context.
-    Now automatically extracts email from JWT if available.
+    Now automatically extracts email from JWT and retrieves conversation history if available.
     """
     try:
         # Try to extract email from JWT first
@@ -271,6 +365,15 @@ async def escalate_to_human_support(
             jwt_payload = decode_jwt_payload(jwt_token)
             user_email = jwt_payload.get('email') or jwt_payload.get('sub') or jwt_payload.get('user_email')
             print(f"DEBUG: Extracted email from JWT: {user_email}")
+        
+        # Auto-retrieve conversation history if not provided
+        if not conversation_history and session_id:
+            print(f"DEBUG: Attempting to retrieve conversation history for session {session_id}")
+            conversation_history = retrieve_conversation_history(session_id=session_id, jwt_token=jwt_token)
+            if conversation_history:
+                print(f"DEBUG: Retrieved conversation history ({len(conversation_history)} characters)")
+            else:
+                print("DEBUG: No conversation history retrieved")
         
         # If still no email, ask for it
         if not user_email:
@@ -390,7 +493,8 @@ async def handle_user_support(
     issue_description: str = "",
     user_email: str = None,
     category: str = "support",
-    jwt_token: str = None
+    jwt_token: str = None,
+    session_id: str = None
 ) -> Dict[str, Any]:
     """
     Unified function to handle all support scenarios.
@@ -401,6 +505,13 @@ async def handle_user_support(
     - escalate_to_support: Actually escalate to human support via Telegram
     """
     try:
+        # Auto-retrieve conversation history if not provided and session_id is available
+        if not conversation_history and session_id:
+            print(f"DEBUG: Auto-retrieving conversation history for session {session_id}")
+            conversation_history = retrieve_conversation_history(session_id=session_id, jwt_token=jwt_token)
+            if conversation_history:
+                print(f"DEBUG: Retrieved conversation history for analysis ({len(conversation_history)} characters)")
+        
         if action == "check_if_support_needed":
             # Check if we should proactively offer human support
             should_offer = should_offer_human_support(conversation_history)
@@ -434,7 +545,8 @@ async def handle_user_support(
                 issue_description=issue_description,
                 category=category,
                 conversation_history=conversation_history,
-                jwt_token=jwt_token
+                jwt_token=jwt_token,
+                session_id=session_id
             )
             
             # Add action info to result
