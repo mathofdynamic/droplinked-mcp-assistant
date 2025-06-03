@@ -1,0 +1,17 @@
+{
+  "type": "function",
+  "function": {
+    "name": "should_offer_human_support",
+    "description": "Analyze conversation patterns to determine if the bot should proactively offer human support. Use this when you detect signs of user frustration, repeated failed attempts, or circular conversations where the AI isn't effectively helping.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "conversation_history": {
+          "type": "string",
+          "description": "Recent conversation context to analyze for frustration patterns and repeated issues"
+        }
+      },
+      "required": ["conversation_history"]
+    }
+  }
+} 

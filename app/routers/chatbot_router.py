@@ -32,7 +32,7 @@ if ASSISTANT_ID is None:
     if ASSISTANT_ID: print(f"INFO (chatbot_router): ASSISTANT_ID loaded from env: {ASSISTANT_ID}")
     else: print("CRITICAL (chatbot_router): ASSISTANT_ID not found.")
 
-from app.services import droplinked_api_service, ai_mockup_service
+from app.services import droplinked_api_service, ai_mockup_service, support_service
 
 # --- Debugging Imports Block (from previous step, can be kept or removed once stable) ---
 print("-" * 50)
@@ -433,6 +433,8 @@ AVAILABLE_TOOLS = {
     "update_product": droplinked_api_service.update_product,
     "delete_product": droplinked_api_service.delete_product,
     "manage_product_operations": manage_product_operations,
+    # Support escalation function
+    "escalate_to_human_support": support_service.escalate_to_human_support,
 }
 
 def get_or_create_thread_for_session(session_id: str) -> str | None:
@@ -596,6 +598,22 @@ async def handle_chatbot_message(
                                 function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
                             elif function_name == "manage_product_operations":
                                 function_result = await tool_function(droplinked_jwt=droplinked_jwt, **arguments)
+                            elif function_name == "escalate_to_human_support":
+                                # Handle support escalation
+                                user_email = arguments.get("user_email")
+                                issue_description = arguments.get("issue_description")
+                                category = arguments.get("category", "support")
+                                conversation_history = arguments.get("conversation_history")
+                                
+                                if not user_email:
+                                    function_result = {"success": False, "error": "User email is required for support escalation"}
+                                else:
+                                    function_result = await tool_function(
+                                        user_email=user_email,
+                                        issue_description=issue_description,
+                                        category=category,
+                                        conversation_history=conversation_history
+                                    )
                             else: 
                                 function_result = await tool_function(**arguments)
                             
