@@ -1,0 +1,68 @@
+{
+    "name": "manage_droplinked_product",
+    "description": "Complete product management for Droplinked. CRITICAL: Always pass ALL relevant product data (title, description, collection_choice, price, quantity, weight) with EVERY action call to maintain state. The action parameter determines what step to perform.",
+    "strict": false,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "create_product",
+            "upload_images",
+            "generate_ai_mockups",
+            "show_summary",
+            "confirm_creation"
+          ],
+          "description": "REQUIRED: The action to perform. create_product=collect data only, upload_images=MUST use when user uploads image files, generate_ai_mockups=create AI-enhanced mockups from uploaded image, show_summary=display summary before creation, confirm_creation=actually create the product."
+        },
+        "title": {
+          "type": "string",
+          "description": "Product title/name. ALWAYS include if known."
+        },
+        "description": {
+          "type": "string",
+          "description": "Product description. ALWAYS include if known."
+        },
+        "collection_choice": {
+          "type": "string",
+          "description": "User's collection choice (1, 2, 3, etc.). CRITICAL: Always include this when user provides a collection number."
+        },
+        "price": {
+          "type": "number",
+          "description": "Product price in USD. ALWAYS include if known."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Product quantity (-1 for unlimited). ALWAYS include if known."
+        },
+        "weight": {
+          "type": "number",
+          "description": "Product weight for shipping. ALWAYS include if known."
+        },
+        "image_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Array of uploaded image URLs. CRITICAL: When user uploads image files, use action='upload_images' with these URLs. When user says 'continue' or 'create' after images, include the uploaded image URLs from previous upload_images responses."
+        },
+        "skip_images": {
+          "type": "boolean",
+          "description": "Set to true to skip image upload"
+        },
+        "use_ai_mockups": {
+          "type": "boolean",
+          "description": "Set to true when user wants AI-generated mockups from their uploaded image. Ask user if they want AI mockups after they upload an image."
+        },
+        "user_message": {
+          "type": "string",
+          "description": "User's current message/intent for context"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  }

@@ -1,0 +1,49 @@
+{
+    "name": "handle_user_support",
+    "description": "Unified function to handle all user support scenarios: detect when to offer human support, generate proactive support messages, and escalate to human support team via Telegram. Automatically extracts email from login session.",
+    "strict": false,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "check_if_support_needed",
+            "offer_human_support",
+            "escalate_to_support"
+          ],
+          "description": "Action to perform: check_if_support_needed=analyze conversation for frustration patterns, offer_human_support=generate friendly support offer message, escalate_to_support=actually send support request to Telegram"
+        },
+        "conversation_history": {
+          "type": "string",
+          "description": "Recent conversation context to analyze or include in support request"
+        },
+        "issue_description": {
+          "type": "string",
+          "description": "Brief description of the user's issue (required for escalate_to_support action)"
+        },
+        "user_email": {
+          "type": "string",
+          "description": "User's email address (optional - will be extracted from login session automatically)"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "dev",
+            "content",
+            "marketing",
+            "support",
+            "sales",
+            "technical",
+            "billing",
+            "general"
+          ],
+          "description": "Category of support needed (auto-detected if not specified)"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "additionalProperties": false
+    }
+  }
