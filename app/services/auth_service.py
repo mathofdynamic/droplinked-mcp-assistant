@@ -78,22 +78,58 @@ async def login_user_on_droplinked(email: str, password: str) -> str:
             print(f"--- Stage 5 (Live Login): Full parsed_body_from_api (repr after stdlib json.loads - first 500): {repr(parsed_body_from_api)[:500]}...")
             print(f"--- Stage 6 (Live Login): Iterating through keys and their repr (after stdlib json.loads):")
             found_token_manually = None
-            expected_key_name = "access_token"
-
-            for key, value in parsed_body_from_api.items():
-                print(f"    Key: {repr(key)}, Value Type: {type(value)}")
-                if key == expected_key_name:
-                    print(f"    MANUAL MATCH FOUND for key: {repr(key)}")
-                    found_token_manually = value
-                elif isinstance(key, str) and key.strip() == expected_key_name:
-                    print(f"    MANUAL MATCH FOUND (after strip) for key: {repr(key)}")
-                    if not found_token_manually:
-                         found_token_manually = value
+            
+            # The Droplinked API response structure is: {"statusCode": 201, "data": {...}}
+            # We need to look inside the "data" object for the token
+            response_data = parsed_body_from_api.get("data", {})
+            
+            # Common JWT token field names to check
+            possible_token_fields = [
+                "access_token", 
+                "accessToken", 
+                "token", 
+                "jwt", 
+                "authToken",
+                "bearerToken"
+            ]
+            
+            # First check top level
+            for field in possible_token_fields:
+                if field in parsed_body_from_api:
+                    found_token_manually = parsed_body_from_api[field]
+                    print(f"    Found token at top level: {field}")
+                    break
+            
+            # If not found at top level, check inside "data" object
+            if not found_token_manually and isinstance(response_data, dict):
+                for field in possible_token_fields:
+                    if field in response_data:
+                        found_token_manually = response_data[field]
+                        print(f"    Found token in data object: {field}")
+                        break
+            
+            # If still not found, check user object (sometimes tokens are nested there)
+            if not found_token_manually and isinstance(response_data, dict):
+                user_data = response_data.get("user", {})
+                if isinstance(user_data, dict):
+                    for field in possible_token_fields:
+                        if field in user_data:
+                            found_token_manually = user_data[field]
+                            print(f"    Found token in user object: {field}")
+                            break
+            
+            # Debug: Show what fields are actually available
+            print(f"    Available top-level keys: {list(parsed_body_from_api.keys())}")
+            if isinstance(response_data, dict):
+                print(f"    Available data keys: {list(response_data.keys())}")
+                user_data = response_data.get("user", {})
+                if isinstance(user_data, dict):
+                    print(f"    Available user keys: {list(user_data.keys())}")
             
             print(f"--- Stage 7 (Live Login): Value of found_token_manually after iteration: {str(found_token_manually)[:30] if found_token_manually else 'None'}")
 
             if not found_token_manually:
-                error_msg = f"CRITICAL (WORKAROUND_BYPASSED_LOGIN_FAILURE): '{expected_key_name}' still not found by manual iteration (after stdlib json.loads) or was empty for user {email}. Check Stage 5 & 6 logs. Actual keys were: {list(parsed_body_from_api.keys())}"
+                error_msg = f"CRITICAL: JWT token not found in API response for user {email}. Checked fields: {possible_token_fields}. Response structure: statusCode={parsed_body_from_api.get('statusCode')}, data_keys={list(response_data.keys()) if isinstance(response_data, dict) else 'not_dict'}"
                 print(f"ERROR: {error_msg}")
                 raise HTTPException(status_code=500, detail=error_msg)
             
